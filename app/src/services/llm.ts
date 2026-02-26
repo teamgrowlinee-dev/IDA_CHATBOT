@@ -1,0 +1,312 @@
+import OpenAI from "openai";
+import { env } from "../config/env.js";
+import { buildKnowledgeBlock, commerceConfig } from "../config/policies.js";
+import type { ChatIntent } from "../types/chat.js";
+
+const client = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
+console.info(
+  `[llm] mode useOpenAI=${env.USE_OPENAI} hasKey=${Boolean(env.OPENAI_API_KEY)} model=${env.OPENAI_MODEL}`
+);
+
+const STORE_KNOWLEDGE = buildKnowledgeBlock();
+
+const STRICT_RULES = `
+REEGLID, mida sa PEAD järgima:
+1. Vasta AINULT allpool toodud poe teabe põhjal. Kui vastust ei ole teabes olemas, ütle ausalt "Kahjuks ei oska sellele vastata. Palun võta ühendust ${commerceConfig.supportEmail} või helista ${commerceConfig.supportPhone}."
+2. Ära kunagi leiuta fakte, hindu, tähtaegu ega tingimusi, mida teabes pole.
+3. Vasta eesti keeles, lühidalt (1-3 lauset), sõbralikult ja konkreetselt.
+4. Ära väljasta tootenimesid, hindu ega tootekaarte tekstivastusena - tootesoovitused tulevad eraldi süsteemist.
+5. Kui klient on vihane või probleem on tõsine, suuna alati kontakti: ${commerceConfig.supportEmail}, ${commerceConfig.supportPhone}.
+6. Sa oled IDA Sisustuspood klienditoe assistent.
+7. Kui vastad tarne/tagastuse/pretensiooni/makse/privaatsuse teemal, lisa lõppu sobiv leheviide kujul: "Rohkem: /myygitingimused/" või "Rohkem: /andmekaitsetingimused/".
+`.trim();
+
+const SYSTEM_PROMPT_SUPPORT = `
+Sa oled IDA Sisustuspood klienditoe vestlusassistent.
+
+${STRICT_RULES}
+
+POE TEAVE:
+${STORE_KNOWLEDGE}
+`.trim();
+
+const SYSTEM_PROMPT_GENERAL = `
+Sa oled IDA Sisustuspood vestlusassistent, kes aitab kliente sõbralikult.
+
+${STRICT_RULES}
+
+POE TEAVE:
+${STORE_KNOWLEDGE}
+`.trim();
+
+const generate = async (input: {
+  systemPrompt: string;
+  userPrompt: string;
+  fallback: string;
+}) => {
+  if (!env.USE_OPENAI || !client) {
+    return input.fallback;
+  }
+
+  try {
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: input.systemPrompt },
+        { role: "user", content: input.userPrompt }
+      ]
+    });
+
+    const text = response.output_text?.trim();
+    return text || input.fallback;
+  } catch (error) {
+    console.error(
+      "[llm] OpenAI request failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return input.fallback;
+  }
+};
+
+export const generateShortReply = async (input: {
+  userText: string;
+  contextSummary: string;
+  fallback: string;
+}) => {
+  return generate({
+    systemPrompt: SYSTEM_PROMPT_SUPPORT,
+    userPrompt: `Kliendi küsimus: ${input.userText}\nFAQ kontekst: ${input.contextSummary}\n\nVasta 1-3 lausega ainult poe teabe põhjal. Kui FAQ kontekst sisaldab vastust, kasuta seda.`,
+    fallback: input.fallback
+  });
+};
+
+export const generateGeneralChatReply = async (input: {
+  userText: string;
+  fallback: string;
+}) => {
+  return generate({
+    systemPrompt: SYSTEM_PROMPT_GENERAL,
+    userPrompt: `Kliendi sõnum: ${input.userText}\n\nVasta lühidalt ja kasulikult. Kui klient küsib toodete kohta, palu täpsustada toote tüüpi (nt diivan, laud, valgusti, vaip, peegel) ja eelarvet. Ära leiuta hindu ega tootenimesid.`,
+    fallback: input.fallback
+  });
+};
+
+const SYSTEM_PROMPT_PRODUCT_SET_SUMMARY = `
+Sa oled IDA Sisustuspood tooteekspert. Sulle antakse kliendi sõnum ja valitud toodete nimekiri.
+Kirjuta lühike (2-3 lauset) eestikeelne kokkuvõte, mis selgitab kuidas need tooted kokku sobivad (stiil, funktsioon, ruumilahendus).
+Ära korda iga toote nime eraldi - räägi tervikust. Ole sõbralik ja konkreetne.
+Tagasta AINULT kokkuvõtte tekst.
+`.trim();
+
+export const generateProductSetSummary = async (input: {
+  userMessage: string;
+  products: { title: string; reason: string }[];
+}): Promise<string> => {
+  if (!env.USE_OPENAI || !client || input.products.length < 2) {
+    return "";
+  }
+
+  try {
+    const productList = input.products
+      .map((p, i) => `${i + 1}. ${p.title} - ${p.reason}`)
+      .join("\n");
+
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: SYSTEM_PROMPT_PRODUCT_SET_SUMMARY },
+        {
+          role: "user",
+          content: `KLIENDI SÕNUM: "${input.userMessage}"\n\nVALITUD TOOTED:\n${productList}\n\nKirjuta lühike kokkuvõte, miks need tooted moodustavad hea koosluse.`
+        }
+      ]
+    });
+
+    return response.output_text?.trim() ?? "";
+  } catch (error) {
+    console.error(
+      "[llm] Product set summary failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return "";
+  }
+};
+
+const SYSTEM_PROMPT_PRODUCT_RECO = `
+Sa oled IDA Sisustuspood tooteekspert. Sinu ülesanne on valida kliendi vajadustele kõige sobivamad tooted kataloogist.
+
+REEGLID:
+1. Analüüsi kliendi sõnumit: ruumi tüüp, stiil, mõõdud, funktsioon, eelarve ja välistused.
+2. Vali AINULT tooted, mis on kataloogis olemas. Ära leiuta tooteid.
+3. Tüübiloogika on range: kui klient küsib konkreetset tüüpi (nt "öökapp"), siis ÄRA paku teisi tüüpe (nt vitriinkapp, riiul, TV-kapp).
+4. Kui klient täpsustab omadust (nt "väike", "kitsas"), siis väldi tooteid, mis sellele selgelt ei vasta.
+5. Kui sobib ainult 1 toode, tagasta ainult 1. Ära lisa täiteks lisatooteid.
+6. Kui ükski toode ei vasta kirjeldusele piisavalt hästi, tagasta tühi massiiv [].
+7. Iga toote kohta kirjuta lühike eestikeelne põhjendus (1 lause), miks see kliendile sobib.
+8. Tagasta JSON massiiv kujul: [{"handle":"toote-slug","reason":"Põhjendus eesti keeles"}]
+9. Tagasta maksimaalselt nii palju tooteid kui küsitud (limit).
+10. Eelisjärjestus: kõige sobivam toode esimesena.
+`.trim();
+
+const SYSTEM_PROMPT_PRODUCT_SEARCH_QUERIES = `
+Sa oled e-poe otsinguassistent. Sinu ülesanne on teha kliendi tekstist head WooCommerce otsingupäringud.
+
+Tagasta AINULT JSON objekt kujul:
+{"queries":["..."]}
+
+REEGLID:
+1. Tagasta 3-8 lühikest otsingupäringut.
+2. Kasuta esmalt konkreetset tootetüüpi (nt kontoritool, öökapp, diivanilaud).
+3. Lisa vajadusel sünonüümid ja ingliskeelne vaste (nt "chair", "office chair"), et leida rohkem sobivaid tooteid.
+4. Kui klient mainib omadusi (värv, materjal, stiil), lisa need eraldi päringutena.
+5. Ära lisa seletusi, ainult JSON.
+`.trim();
+
+export const generateProductSearchQueries = async (input: {
+  userMessage: string;
+  fallbackQueries: string[];
+}): Promise<string[]> => {
+  const fallback = [...new Set(input.fallbackQueries.map((q) => q.trim()).filter(Boolean))].slice(0, 8);
+
+  if (!env.USE_OPENAI || !client) {
+    return fallback;
+  }
+
+  try {
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: SYSTEM_PROMPT_PRODUCT_SEARCH_QUERIES },
+        {
+          role: "user",
+          content: `KLIENDI SÕNUM: "${input.userMessage}"\n\nTagasta ainult JSON.`
+        }
+      ]
+    });
+
+    const text = response.output_text?.trim();
+    if (!text) return fallback;
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return fallback;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const queries = Array.isArray(parsed?.queries) ? parsed.queries : [];
+    const normalized = queries
+      .filter((item: unknown): item is string => typeof item === "string")
+      .map((query: string) => query.trim())
+      .filter((query: string) => query.length >= 2 && query.length <= 64);
+
+    const unique = [...new Set([...normalized, ...fallback])].slice(0, 10);
+    return unique.length > 0 ? unique : fallback;
+  } catch (error) {
+    console.error(
+      "[llm] Product search query planning failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return fallback;
+  }
+};
+
+export const generateProductRecommendations = async (input: {
+  userMessage: string;
+  catalogSummary: string;
+  limit: number;
+}): Promise<{ handle: string; reason: string }[]> => {
+  if (!env.USE_OPENAI || !client) {
+    return [];
+  }
+
+  try {
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: SYSTEM_PROMPT_PRODUCT_RECO },
+        {
+          role: "user",
+          content: `TOOTEKATALOOG:\n${input.catalogSummary}\n\nKLIENDI SÕNUM: "${input.userMessage}"\n\nVali kuni ${input.limit} kõige sobivamat toodet. Kui sobib ainult 1, tagasta 1. Kui ükski ei sobi, tagasta []. Tagasta AINULT JSON massiiv, mitte midagi muud.`
+        }
+      ]
+    });
+
+    const text = response.output_text?.trim();
+    if (!text) return [];
+
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter((item: any) => item.handle && typeof item.handle === "string")
+      .map((item: any) => ({
+        handle: item.handle,
+        reason: typeof item.reason === "string" ? item.reason : ""
+      }));
+  } catch (error) {
+    console.error(
+      "[llm] Product recommendation failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return [];
+  }
+};
+
+const SYSTEM_PROMPT_INTENT_CLASSIFIER = `
+Sa oled e-kaubanduse vestluse intentide klassifitseerija.
+
+Tagasta AINULT JSON objekt kujul:
+{"intent":"greeting|shipping|returns|faq|order_help|product_reco|smalltalk","confidence":0.0-1.0}
+
+REEGLID:
+- Kui kasutaja ütleb lühidalt "okei", "aitäh", "selge", "jah", "ei", "super" vms ning ei küsi midagi konkreetset, vali "smalltalk".
+- Kui kasutaja küsib tarne/kohaletoimetamise kohta => "shipping".
+- Kui kasutaja küsib tagastuse/taganemise/pretensiooni kohta => "returns".
+- Kui kasutaja küsib garantiid, kontakte, makseviise, privaatsust, ettevõtte infot, tingimusi => "faq".
+- Kui kasutaja küsib tellimuse staatust/makse/arve kohta => "order_help".
+- Kui kasutaja otsib toodet või palub soovitust (nt diivan, laud, valgusti, vaip, peegel, eelarve) => "product_reco".
+- Kui on puhas tervitus => "greeting".
+- Kasuta vestluse ajalugu konteksti jaoks, aga klassifitseeri kasutaja VIIMANE sõnum.
+`.trim();
+
+export const classifyIntentWithContext = async (input: {
+  userMessage: string;
+  history: Array<{ role: "user" | "assistant"; text: string }>;
+}): Promise<{ intent: ChatIntent; confidence: number } | null> => {
+  if (!env.USE_OPENAI || !client) return null;
+
+  const historyText = (input.history ?? [])
+    .slice(-8)
+    .map((m) => `${m.role === "user" ? "KLIENT" : "ASSISTENT"}: ${m.text}`)
+    .join("\n");
+
+  try {
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: SYSTEM_PROMPT_INTENT_CLASSIFIER },
+        {
+          role: "user",
+          content: `VESTLUSE AJALUGU:\n${historyText || "(puudub)"}\n\nVIIMANE SÕNUM:\n${input.userMessage}\n\nTagasta ainult JSON.`
+        }
+      ]
+    });
+
+    const text = response.output_text?.trim();
+    if (!text) return null;
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    const intent = parsed?.intent as ChatIntent;
+    const confidence = Number(parsed?.confidence ?? 0);
+    if (!intent) return null;
+    return { intent, confidence: Number.isFinite(confidence) ? confidence : 0 };
+  } catch (error) {
+    console.error(
+      "[llm] Intent classification failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return null;
+  }
+};

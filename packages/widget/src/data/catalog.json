@@ -1,0 +1,146 @@
+[
+  {
+    "id": "p-001",
+    "title": "NOW Sports Creatine Monohydrate (1 kg)",
+    "category": "Lisandid",
+    "description": "Puhas kreatiinimonohüdraat jõu, plahvatuslikkuse ja lihaskasvatuse toetuseks.",
+    "price": 34.99,
+    "tags": ["kreatiin", "lihaskasvatus", "joud"],
+    "handle": "now-sports-creatine-monohydrate-1kg"
+  },
+  {
+    "id": "p-002",
+    "title": "Thorne Creatine (450 g)",
+    "category": "Lisandid",
+    "description": "Mikroniseeritud kreatiin igapäevaseks jõu- ja lihasmassi toetuseks.",
+    "price": 42.9,
+    "tags": ["kreatiin", "lihas", "treening"],
+    "handle": "thorne-creatine-450g"
+  },
+  {
+    "id": "p-003",
+    "title": "NutraKey Acetyl L-Carnitine (500mg, 60 kapslit)",
+    "category": "Lisandid",
+    "description": "Acetyl L-carnitine ainevahetuse ja energia toetuseks treeningu ajal.",
+    "price": 14.99,
+    "tags": ["l-carnitine", "kaalulangus", "energia"],
+    "handle": "nutrakey-acetyl-l-carnitine-500mg-60"
+  },
+  {
+    "id": "p-004",
+    "title": "Rule 1 R1 Protein Isolate (2.27 kg)",
+    "category": "Valgud",
+    "description": "Kõrge valgusisaldusega isolate seerumivalk lihaste taastumiseks.",
+    "price": 59.99,
+    "tags": ["valk", "whey", "lihaskasvatus", "taastumine"],
+    "handle": "rule1-r1-protein-isolate-2-27kg"
+  },
+  {
+    "id": "p-005",
+    "title": "Whey Protein Concentrate (1 kg)",
+    "category": "Valgud",
+    "description": "Klassikaline seerumivalk treeningjärgseks taastumiseks.",
+    "price": 29.99,
+    "tags": ["valk", "whey", "taastumine"],
+    "handle": "whey-protein-concentrate-1kg"
+  },
+  {
+    "id": "p-006",
+    "title": "Casein Night Protein (900 g)",
+    "category": "Valgud",
+    "description": "Aeglaselt imenduv kaseiinvalgupulber kasutamiseks õhtul.",
+    "price": 31.5,
+    "tags": ["valk", "kaseiin", "taastumine"],
+    "handle": "casein-night-protein-900g"
+  },
+  {
+    "id": "p-007",
+    "title": "Reguleeritavad hantlid 2 x 24 kg",
+    "category": "Hantlid",
+    "description": "Kompaktne reguleeritav hantlikomplekt (hantel) koduseks jõutreeninguks.",
+    "price": 329,
+    "tags": ["hantlid", "joud", "kodujousaal"],
+    "handle": "reguleeritavad-hantlid-2x24kg"
+  },
+  {
+    "id": "p-008",
+    "title": "Hex hantlite komplekt 2 x 10 kg",
+    "category": "Hantlid",
+    "description": "Kummikattega hex hantlid (hantel) igapäevaseks treeninguks.",
+    "price": 79,
+    "tags": ["hantlid", "algaja", "joud"],
+    "handle": "hex-hantlid-2x10kg"
+  },
+  {
+    "id": "p-009",
+    "title": "Kaldpingi treeningpink Fold Pro",
+    "category": "Pingid",
+    "description": "Mitme asendiga kokkupandav treeningpink rinnale, õlgadele ja kõhule.",
+    "price": 159,
+    "tags": ["pingid", "joud", "kodujousaal"],
+    "handle": "kaldpingi-treeningpink-fold-pro"
+  },
+  {
+    "id": "p-010",
+    "title": "Flat Bench Basic",
+    "category": "Pingid",
+    "description": "Tugev ja stabiilne lame pink hantli- ja kangitreeninguks.",
+    "price": 99,
+    "tags": ["pingid", "joud", "algaja"],
+    "handle": "flat-bench-basic"
+  },
+  {
+    "id": "p-011",
+    "title": "Jooksulint HomeRun S1",
+    "category": "Jooksulindid",
+    "description": "Vaikne jooksulint koduseks kardio- ja rasvapõletustreeninguks.",
+    "price": 699,
+    "tags": ["jooksulint", "kardio", "kaalulangus"],
+    "handle": "jooksulint-homerun-s1"
+  },
+  {
+    "id": "p-012",
+    "title": "Jooksulint Compact Walk 2in1",
+    "category": "Jooksulindid",
+    "description": "Kompaktne 2in1 jooksu- ja kõnnilint väiksemasse korterisse.",
+    "price": 429,
+    "tags": ["jooksulint", "kardio", "kodu"],
+    "handle": "jooksulint-compact-walk-2in1"
+  },
+  {
+    "id": "p-013",
+    "title": "Velotrenažöör AirBike X",
+    "category": "Velotrenažöörid",
+    "description": "Intensiivne õhu takistusega velotrenažöör HIIT treeninguteks.",
+    "price": 549,
+    "tags": ["velotrenazoor", "kardio", "rasvapoletus"],
+    "handle": "velotrenazoor-airbike-x"
+  },
+  {
+    "id": "p-014",
+    "title": "Velotrenažöör Comfort Ride",
+    "category": "Velotrenažöörid",
+    "description": "Mugava sadulaga velotrenažöör igapäevaseks koduseks treeninguks.",
+    "price": 349,
+    "tags": ["velotrenazoor", "kardio", "algaja"],
+    "handle": "velotrenazoor-comfort-ride"
+  },
+  {
+    "id": "p-015",
+    "title": "Kummilintide komplekt Strong Pack",
+    "category": "Tarvikud",
+    "description": "Erineva tugevusega kummilindid soojenduseks ja koduseks treeninguks.",
+    "price": 24.9,
+    "tags": ["kummilindid", "taastumine", "algaja"],
+    "handle": "kummilintide-komplekt-strong-pack"
+  },
+  {
+    "id": "p-016",
+    "title": "Treeningmat 10 mm",
+    "category": "Tarvikud",
+    "description": "Pehme matt venituseks, kerelihaste treenimiseks ja taastumiseks.",
+    "price": 21.9,
+    "tags": ["mat", "taastumine", "kodu"],
+    "handle": "treeningmat-10mm"
+  }
+]

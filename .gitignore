@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+
+# Build outputs
+app/dist/
+packages/widget/dist/
