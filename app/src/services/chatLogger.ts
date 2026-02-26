@@ -6,20 +6,25 @@ export function logChatMessage(params: {
   userMessage: string;
   assistantMessage: string;
 }): void {
-  const webhookUrl = env.N8N_CHATLOG_WEBHOOK_URL;
+  const webhookUrl = env.CHATLOG_WEBHOOK_URL;
   if (!webhookUrl) return;
 
   const now = new Date();
 
-  const payload = {
-    session_id: params.sessionId,
-    client_id: params.sessionId,
-    cart_id: params.cartId ?? "",
-    user_message: params.userMessage,
-    assistant_message: params.assistantMessage,
+  const payload: Record<string, string> = {
     timestamp: now.toISOString(),
-    store_origin: env.STORE_BASE_URL
+    sessionId: params.sessionId,
+    clientId: params.sessionId,
+    cartId: params.cartId ?? "",
+    userMessage: params.userMessage,
+    assistantMessage: params.assistantMessage,
+    storeOrigin: env.STORE_BASE_URL,
+    status: "ok"
   };
+
+  if (env.CHATLOG_WEBHOOK_SECRET) {
+    payload.secret = env.CHATLOG_WEBHOOK_SECRET;
+  }
 
   // fire-and-forget – ei blokeeri vastust
   fetch(webhookUrl, {
