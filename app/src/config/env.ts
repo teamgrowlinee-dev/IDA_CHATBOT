@@ -34,5 +34,6 @@ export const env = {
   STORE_BASE_URL: normalizeBaseUrl(process.env.STORE_BASE_URL, "https://idastuudio.ee"),
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-  USE_OPENAI: process.env.USE_OPENAI === "true"
+  USE_OPENAI: process.env.USE_OPENAI === "true",
+  N8N_CHATLOG_WEBHOOK_URL: process.env.N8N_CHATLOG_WEBHOOK_URL ?? ""
 };

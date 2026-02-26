@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { env } from "../config/env.js";
 import { addCartLineFromChat, runChat } from "../services/chat.js";
+import { logChatMessage } from "../services/chatLogger.js";
 
 const router = Router();
 
@@ -28,6 +29,13 @@ router.post("/chat", async (req, res) => {
 
     const result = await runChat({ message, cartId, history });
     res.json(result);
+
+    logChatMessage({
+      sessionId: result.cartId ?? cartId ?? "anon",
+      cartId: result.cartId,
+      userMessage: message,
+      assistantMessage: result.message
+    });
   } catch (error) {
     console.error("[chat] error:", error);
     res.status(200).json({
