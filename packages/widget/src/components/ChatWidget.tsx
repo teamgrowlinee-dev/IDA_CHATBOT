@@ -12,6 +12,8 @@ interface Props {
 
 let msgCounter = 0;
 const nextId = () => `msg-${++msgCounter}`;
+const parseDisplayPrice = (priceValue: string | undefined) =>
+  parseFloat(priceValue?.replace(/[^0-9.]/g, "") ?? "0");
 
 export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin }) => {
   const [open, setOpen] = useState(() => {
@@ -225,8 +227,52 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
         if (i !== bundleIndex) return bundle;
         const items = bundle.items.filter((item) => item.id !== itemId);
         const totalPrice = items.reduce(
-          (s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0
+          (sum, current) => sum + parseDisplayPrice(current.price), 0
         );
+        return { ...bundle, items, totalPrice };
+      });
+    });
+  }, []);
+
+  const handleReplaceBundleItem = useCallback((bundleIndex: number, itemId: string, replacement: ProductCardType) => {
+    setBundleResults((prev) => {
+      if (!prev) return prev;
+      return prev.map((bundle, i) => {
+        if (i !== bundleIndex) return bundle;
+
+        const itemIndex = bundle.items.findIndex((item) => item.id === itemId);
+        if (itemIndex < 0) return bundle;
+        if (bundle.items.some((item, idx) => idx !== itemIndex && item.id === replacement.id)) return bundle;
+
+        const currentItem = bundle.items[itemIndex];
+        const previousAsAlternative: ProductCardType = {
+          id: currentItem.id,
+          title: currentItem.title,
+          handle: currentItem.handle,
+          image: currentItem.image,
+          price: currentItem.price,
+          compareAtPrice: currentItem.compareAtPrice,
+          reason: currentItem.whyChosen || currentItem.reason,
+          variantId: currentItem.variantId,
+          permalink: currentItem.permalink,
+          categoryNames: currentItem.categoryNames
+        };
+
+        const nextAlternatives: ProductCardType[] = [
+          previousAsAlternative,
+          ...(currentItem.alternatives ?? []).filter((alt) => alt.id !== replacement.id && alt.id !== previousAsAlternative.id)
+        ].slice(0, 4);
+
+        const replacementItem: BundleItem = {
+          ...replacement,
+          roleInBundle: currentItem.roleInBundle,
+          whyChosen: "Asendatud sinu valitud alternatiiviga.",
+          specKey: currentItem.specKey,
+          alternatives: nextAlternatives
+        };
+
+        const items = bundle.items.map((item) => (item.id === itemId ? replacementItem : item));
+        const totalPrice = items.reduce((sum, current) => sum + parseDisplayPrice(current.price), 0);
         return { ...bundle, items, totalPrice };
       });
     });
@@ -503,6 +549,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
                     bundle={bundle}
                     onAddAll={handleAddAllToCart}
                     onRemoveItem={(itemId) => handleRemoveBundleItem(i, itemId)}
+                    onReplaceItem={(itemId, replacement) => handleReplaceBundleItem(i, itemId, replacement)}
                   />
                 ))}
                 <button

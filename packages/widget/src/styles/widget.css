@@ -688,6 +688,11 @@
   flex-direction: column;
   gap: 6px;
 }
+.gl-bundle-item-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .gl-bundle-item {
   display: flex;
   align-items: flex-start;
@@ -722,6 +727,22 @@
 .gl-bundle-item-title a:hover { text-decoration: underline; }
 .gl-bundle-item-price { font-size: 13px; color: #c9a87c; margin-top: 2px; }
 .gl-bundle-item-why { font-size: 11px; color: #8a7060; margin-top: 2px; }
+.gl-bundle-alts-toggle {
+  margin-top: 7px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(201,168,124,0.35);
+  background: rgba(122,79,47,0.18);
+  color: #d5b48c;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gl-bundle-alts-toggle:hover {
+  background: rgba(122,79,47,0.28);
+  border-color: rgba(201,168,124,0.55);
+}
 .gl-bundle-remove {
   background: rgba(255,80,80,0.12);
   border: 1px solid rgba(255,80,80,0.25);
@@ -736,6 +757,61 @@
   line-height: 1;
 }
 .gl-bundle-remove:hover { background: rgba(255,80,80,0.25); }
+.gl-bundle-alts-list {
+  margin-left: 58px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gl-bundle-alt-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+}
+.gl-bundle-alt-img {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.gl-bundle-alt-info {
+  flex: 1;
+  min-width: 0;
+}
+.gl-bundle-alt-title {
+  color: #fffaf3;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gl-bundle-alt-title a { color: #fffaf3; text-decoration: none; }
+.gl-bundle-alt-title a:hover { text-decoration: underline; }
+.gl-bundle-alt-price {
+  color: #c9a87c;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.gl-bundle-alt-replace {
+  background: rgba(122,79,47,0.28);
+  border: 1px solid rgba(201,168,124,0.35);
+  border-radius: 7px;
+  color: #fffaf3;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gl-bundle-alt-replace:hover {
+  background: rgba(122,79,47,0.4);
+}
 .gl-bundle-removed-note { font-size: 11px; color: #8a7060; font-weight: 400; }
 .gl-bundle-reasons {
   padding: 8px 12px;
@@ -781,4 +857,10 @@
   font-size: 13px;
   cursor: pointer;
   text-align: center;
+}
+
+@media (max-width: 620px) {
+  .gl-bundle-alts-list {
+    margin-left: 0;
+  }
 }

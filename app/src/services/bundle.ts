@@ -43,6 +43,9 @@ const normalizeForMatch = (value: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
+const parseDisplayPrice = (priceValue: string | undefined): number =>
+  parseFloat(priceValue?.replace(/[^0-9.]/g, "") ?? "0");
+
 type MenuElementKey =
   | "sofa"
   | "coffee-table"
@@ -240,6 +243,12 @@ const inferSpecKeyFromText = (rawText: string): MenuElementKey | null => {
   return null;
 };
 
+const inferSpecKeyFromRawProduct = (product: CatalogProductRaw): MenuElementKey | null =>
+  inferSpecKeyFromText([product.title, ...product.categories, ...(product.categorySlugs ?? []), product.description].join(" "));
+
+const isMenuElementKey = (value: string): value is MenuElementKey =>
+  Object.prototype.hasOwnProperty.call(ELEMENT_SPEC, value);
+
 interface SelectedElementSpec {
   element: string;
   specKey: MenuElementKey;
@@ -247,6 +256,8 @@ interface SelectedElementSpec {
 }
 
 const ACCESSORY_SPEC_KEYS = new Set<MenuElementKey>(["lamp", "rug", "decor", "mirror"]);
+
+const MAX_ALTERNATIVES_PER_ITEM = 4;
 
 const resolveSelectedElementSpecs = (answers: BundleAnswers): SelectedElementSpec[] => {
   const roomSpec = ROOM_MENU_SPEC[answers.room];
@@ -301,6 +312,96 @@ const bundleSignature = (bundle: Bundle): string =>
     .sort((a, b) => a.localeCompare(b))
     .join("|");
 
+function rankAlternativesForItem(
+  item: BundleItem,
+  bundleItemIds: Set<string>,
+  filteredCatalog: CatalogProductRaw[],
+  catalogById: Map<string, CatalogProductRaw>,
+  answers: BundleAnswers
+): ProductCard[] {
+  const currentRaw = catalogById.get(item.id);
+  const explicitSpecKey = item.specKey && isMenuElementKey(item.specKey) ? item.specKey : null;
+  const inferredCurrentSpecKey =
+    currentRaw
+      ? inferSpecKeyFromRawProduct(currentRaw)
+      : inferSpecKeyFromText([item.title, ...(item.categoryNames ?? [])].join(" "));
+  const anchorSpecKey = inferSpecKeyFromText(answers.anchorProduct ?? "");
+  const resolvedSpecKey =
+    explicitSpecKey ??
+    inferredCurrentSpecKey ??
+    (item.roleInBundle === "ankur" ? anchorSpecKey : null);
+  const resolvedSpec = resolvedSpecKey ? ELEMENT_SPEC[resolvedSpecKey] : null;
+  const resolvedSpecSlugs = new Set(resolvedSpec?.slugs ?? []);
+  const resolvedSpecKeywords = (resolvedSpec?.keywords ?? []).map((kw) => normalizeForMatch(kw));
+  const basePrice = parseDisplayPrice(item.price);
+
+  const ranked = filteredCatalog
+    .filter((candidate) => candidate.id !== item.id)
+    .filter((candidate) => !bundleItemIds.has(candidate.id))
+    .map((candidate) => {
+      const searchable = buildSearchableText(candidate);
+      const candidateSpecKey = inferSpecKeyFromRawProduct(candidate);
+      const isAccessoryCandidate = candidateSpecKey !== null && ACCESSORY_SPEC_KEYS.has(candidateSpecKey);
+      const roleCompatible =
+        item.roleInBundle === "aksessuaar"
+          ? isAccessoryCandidate || (candidateSpecKey !== null && resolvedSpecKey === candidateSpecKey)
+          : !isAccessoryCandidate || (candidateSpecKey !== null && resolvedSpecKey === candidateSpecKey);
+
+      if (!roleCompatible) return null;
+
+      const slugOverlapCount =
+        resolvedSpecSlugs.size > 0
+          ? (candidate.categorySlugs ?? []).filter((slug) => resolvedSpecSlugs.has(slug)).length
+          : 0;
+      const keywordMatch = resolvedSpecKeywords.some((kw) => searchable.includes(kw));
+      const sameSpec = resolvedSpecKey !== null && candidateSpecKey === resolvedSpecKey;
+
+      const card = toProductCard(candidate);
+      let score = scoreCatalogProduct(card, answers);
+
+      if (resolvedSpecKey) {
+        if (sameSpec) score += 42;
+        if (slugOverlapCount > 0) score += slugOverlapCount * 15;
+        if (keywordMatch) score += 12;
+        if (!sameSpec && slugOverlapCount === 0 && !keywordMatch) score -= 38;
+      }
+
+      if (item.roleInBundle === "ankur") score += 8;
+      if (normalizeForMatch(card.title).includes("defektiga")) score -= 5;
+
+      if (basePrice > 0) {
+        const priceDiffRatio = Math.abs(candidate.price - basePrice) / basePrice;
+        score += Math.max(0, 10 - priceDiffRatio * 25);
+      }
+
+      return { card, score };
+    })
+    .filter((value): value is { card: ProductCard; score: number } => value !== null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_ALTERNATIVES_PER_ITEM)
+    .map((value) => value.card);
+
+  return ranked;
+}
+
+function attachAlternativesToBundles(
+  bundles: Bundle[],
+  filteredCatalog: CatalogProductRaw[],
+  catalogById: Map<string, CatalogProductRaw>,
+  answers: BundleAnswers
+): Bundle[] {
+  return bundles.map((bundle) => {
+    const bundleItemIds = new Set(bundle.items.map((item) => item.id));
+    const items = bundle.items.map((item) => ({
+      ...item,
+      alternatives: rankAlternativesForItem(item, bundleItemIds, filteredCatalog, catalogById, answers)
+    }));
+
+    const totalPrice = items.reduce((sum, current) => sum + parseDisplayPrice(current.price), 0);
+    return { ...bundle, items, totalPrice };
+  });
+}
+
 function buildStrictBundleFromSelections(
   catalog: CatalogProductRaw[],
   answers: BundleAnswers
@@ -347,7 +448,8 @@ function buildStrictBundleFromSelections(
     items.push({
       ...picked,
       roleInBundle: role,
-      whyChosen
+      whyChosen,
+      specKey: selected.specKey
     });
   }
 
@@ -363,7 +465,7 @@ function buildStrictBundleFromSelections(
     };
   }
 
-  const totalPrice = items.reduce((sum, item) => sum + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0);
+  const totalPrice = items.reduce((sum, current) => sum + parseDisplayPrice(current.price), 0);
 
   const keyReasons = [
     `Sisaldab ${items.length}/${selectedSpecs.length} valitud elementi`,
@@ -523,16 +625,20 @@ function buildBundlesByScoring(filtered: CatalogProductRaw[], answers: BundleAns
         if (fallback) picked = toProductCard(fallback);
       }
       if (picked) {
+        const slotSpecKey =
+          inferSpecKeyFromText(slot.keywords.join(" ")) ??
+          inferSpecKeyFromText([picked.title, ...(picked.categoryNames ?? [])].join(" "));
         usedIds.add(picked.id);
         items.push({
           ...picked,
           roleInBundle: slot.role,
-          whyChosen: slot.role === "ankur" ? "Komplekti põhitoode" : slot.role === "lisatoode" ? "Täiendab põhitoodet" : "Viimistleb ruumi"
+          whyChosen: slot.role === "ankur" ? "Komplekti põhitoode" : slot.role === "lisatoode" ? "Täiendab põhitoodet" : "Viimistleb ruumi",
+          specKey: slotSpecKey ?? undefined
         });
       }
     }
     if (!items.length) continue;
-    const totalPrice = items.reduce((s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0);
+    const totalPrice = items.reduce((sum, current) => sum + parseDisplayPrice(current.price), 0);
     bundles.push({
       title: `Komplekt ${i + 1}`,
       styleSummary: `${answers.colorTone.toLowerCase()} toonid`,
@@ -579,26 +685,34 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
         const result = aiBundles
           .map((ab) => {
             const items: BundleItem[] = ab.items
-              .map((ai) => {
+              .map((ai): BundleItem | null => {
                 const raw = catalogById.get(ai.id);
                 if (!raw) return null;
-                return { ...toProductCard(raw), roleInBundle: ai.roleInBundle, whyChosen: ai.whyChosen } satisfies BundleItem;
+                const inferredSpecKey = inferSpecKeyFromRawProduct(raw);
+                return {
+                  ...toProductCard(raw),
+                  roleInBundle: ai.roleInBundle,
+                  whyChosen: ai.whyChosen,
+                  specKey: inferredSpecKey ?? undefined
+                };
               })
               .filter((x): x is BundleItem => x !== null);
 
             if (!items.length) return null;
             const totalPrice = items.reduce(
-              (s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0
+              (sum, current) => sum + parseDisplayPrice(current.price), 0
             );
             return { title: ab.title, styleSummary: ab.styleSummary, totalPrice, items, keyReasons: ab.keyReasons, tradeoffs: ab.tradeoffs };
           })
           .filter((b): b is Bundle => b !== null);
 
         if (result.length > 0) {
-          if (!strictBundle) return result;
+          if (!strictBundle) {
+            return attachAlternativesToBundles(result, filtered, catalogById, answers);
+          }
           const strictSig = bundleSignature(strictBundle);
           const merged = [strictBundle, ...result.filter((bundle) => bundleSignature(bundle) !== strictSig)];
-          return merged.slice(0, 3);
+          return attachAlternativesToBundles(merged.slice(0, 3), filtered, catalogById, answers);
         }
       }
     } catch (err) {
@@ -609,7 +723,7 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
   // Fallback: scoring-based selection (no OpenAI key or AI call failed)
   const scored = buildBundlesByScoring(filtered, answers);
   if (strictBundle) {
-    return [strictBundle];
+    return attachAlternativesToBundles([strictBundle], filtered, catalogById, answers);
   }
-  return scored;
+  return attachAlternativesToBundles(scored, filtered, catalogById, answers);
 }

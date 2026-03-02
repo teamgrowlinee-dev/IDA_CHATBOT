@@ -60,6 +60,8 @@ export interface BundleAnswers {
 export interface BundleItem extends ProductCard {
   roleInBundle: "ankur" | "lisatoode" | "aksessuaar";
   whyChosen: string;
+  specKey?: string;
+  alternatives?: ProductCard[];
 }
 
 export interface Bundle {
