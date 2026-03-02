@@ -359,8 +359,8 @@ REEGLID:
 - Vali AINULT elemendid, mida klient on märkinud "Valitud elemendid" nimekirjas
 - Iga toode täidab unikaalse rolli — ära lisa samast kategooriast mitut toodet
 - Rollide jaotus: 1 "ankur" (peamine mööbel), 1–3 "lisatoode" (täiendav mööbel eri kategooriast), 1–2 "aksessuaar" (valgustus/tekstiil/dekor)
-- Igal elemendil on oma stiili- ja materjalieelistus — järgi neid täpselt (kui "Pole vahet", siis vali parim saadaolev)
-- Kui klient eelistab konkreetset materjali elemendil, eelista seda materjali selle elemendi tootes
+- Igal elemendil on oma stiilieelistus — järgi seda kui võimalik
+- Kui elemendi täpset stiili kataloogis ei ole, vali sama elemendi jaoks lähim saadaolev stiil
 - Kui on lapsed või lemmikloomad, väldi kangast/nahka; eelista kunstnahka, mikrofiiber
 - Iga komplekt peab erinema teistest (erinev ankurtoode, fookus või stiilikombinatsioon)
 - Eelarve on orienteeriv — ära sunni kõiki tooteid kataloogi piires maksimeerima
@@ -385,7 +385,7 @@ Tagasta AINULT JSON massiiv, ilma selgitusteta:
 
   const elementPrefsText = answers.elementPreferences?.length
     ? answers.elementPreferences
-        .map((ep) => `  - ${ep.element}: stiil=${ep.style}, materjal=${ep.material}`)
+        .map((ep) => `  - ${ep.element}: stiil=${ep.style}`)
         .join("\n")
     : "  (täpsustamata)";
 
@@ -401,7 +401,7 @@ ${answers.dimensionsKnown ? `- Ruumi mõõdud: ${answers.widthCm}cm x ${answers.
 VALITUD ELEMENDID (koosta komplekt AINULT nendest):
 ${(answers.selectedElements ?? []).map((e) => `  - ${e}`).join("\n") || "  (kõik ruumielemendid)"}
 
-ELEMENTIDE STIILI- JA MATERJALIEELISTUSED:
+ELEMENTIDE STIILIEELISTUSED:
 ${elementPrefsText}
 
 KATALOOG (${catalog.length} toodet):

@@ -86,7 +86,6 @@ const BUDGET_OPTIONS = [
 ];
 
 const STYLES = ["Modern", "Skandinaavia", "Klassika", "Industriaal", "Boheem", "Luksus", "Pole vahet"];
-const MATERIALS = ["Puit", "Metall", "Kangas", "Nahk", "Kunstnahk", "Pole vahet"];
 const COLOR_TONES = ["Hele", "Tume", "Neutraalne", "Kontrast"];
 
 const ROLE_LABEL: Record<RoomElement["role"], string> = {
@@ -106,7 +105,7 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
   });
   const [customBudget, setCustomBudget] = useState("");
   const [selectedElements, setSelectedElements] = useState<string[]>([]);
-  const [elementPrefs, setElementPrefs] = useState<Record<string, { style: string; material: string }>>({});
+  const [elementPrefs, setElementPrefs] = useState<Record<string, string>>({});
 
   const set = <K extends keyof BundleAnswers>(key: K, value: BundleAnswers[K]) =>
     setAnswers((prev) => ({ ...prev, [key]: value }));
@@ -115,9 +114,9 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
     set("room", room);
     const elements = ROOM_ELEMENTS[room] ?? [];
     setSelectedElements(elements.map((e) => e.name));
-    const prefs: Record<string, { style: string; material: string }> = {};
+    const prefs: Record<string, string> = {};
     for (const el of elements) {
-      prefs[el.name] = { style: "Pole vahet", material: "Pole vahet" };
+      prefs[el.name] = "Pole vahet";
     }
     setElementPrefs(prefs);
   };
@@ -128,10 +127,10 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
     );
   };
 
-  const setElementPref = (element: string, key: "style" | "material", value: string) => {
+  const setElementPref = (element: string, value: string) => {
     setElementPrefs((prev) => ({
       ...prev,
-      [element]: { ...(prev[element] ?? { style: "Pole vahet", material: "Pole vahet" }), [key]: value }
+      [element]: value
     }));
   };
 
@@ -157,8 +156,8 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
     } else {
       const elementPreferences: ElementPreference[] = selectedElements.map((el) => ({
         element: el,
-        style: elementPrefs[el]?.style ?? "Pole vahet",
-        material: elementPrefs[el]?.material ?? "Pole vahet"
+        style: elementPrefs[el] ?? "Pole vahet",
+        material: "Pole vahet"
       }));
       onComplete({
         ...(answers as BundleAnswers),
@@ -265,8 +264,8 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
       case 4:
         return (
           <div className="gl-flow-step">
-            <div className="gl-flow-question">Iga elemendi stiil ja materjal</div>
-            <div className="gl-flow-hint">"Pole vahet" lubab AI-l leida parima sobiva toote</div>
+            <div className="gl-flow-question">Iga elemendi stiil</div>
+            <div className="gl-flow-hint">Kui täpset stiili ei leidu, AI valib lähima saadaval variandi</div>
             <div className="gl-element-prefs">
               {selectedElements.map((el) => (
                 <div key={el} className="gl-element-pref-row">
@@ -274,20 +273,11 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
                   <div className="gl-element-pref-selects">
                     <select
                       className="gl-element-pref-select"
-                      value={elementPrefs[el]?.style ?? "Pole vahet"}
-                      onChange={(e) => setElementPref(el, "style", e.target.value)}
+                      value={elementPrefs[el] ?? "Pole vahet"}
+                      onChange={(e) => setElementPref(el, e.target.value)}
                     >
                       {STYLES.map((s) => (
                         <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                    <select
-                      className="gl-element-pref-select"
-                      value={elementPrefs[el]?.material ?? "Pole vahet"}
-                      onChange={(e) => setElementPref(el, "material", e.target.value)}
-                    >
-                      {MATERIALS.map((m) => (
-                        <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
                   </div>
