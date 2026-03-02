@@ -97,13 +97,13 @@ function buildBundlesByScoring(filtered: CatalogProductRaw[], answers: BundleAns
     const totalPrice = items.reduce((s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0);
     bundles.push({
       title: `Komplekt ${i + 1}`,
-      styleSummary: `${answers.style} stiil, ${answers.colorTone.toLowerCase()} toonid`,
+      styleSummary: `${answers.colorTone.toLowerCase()} toonid`,
       totalPrice,
       items,
       keyReasons: [
         `Sobib ${answers.room.toLowerCase()}`,
         `Eelarve kuni ${budgetMax}€`,
-        answers.hasChildren || answers.hasPets ? "Vastupidavad materjalid" : `${answers.style} stiil`
+        answers.hasChildren || answers.hasPets ? "Vastupidavad materjalid" : `${answers.room} komplekt`
       ],
       tradeoffs: totalPrice > budgetMax ? [`Koguhind ületab eelarve ${(totalPrice - budgetMax).toFixed(0)}€ võrra`] : []
     });

@@ -346,15 +346,26 @@ export const generateBundlesWithAI = async (
 Saad kliendi eelistused ja poe tootekataloogist filtreeritud toodete nimekirja.
 Sinu ülesanne: vali kataloogist sobivad tooted ja koosta 1–3 erinevat terviklikku mööblikomplekti.
 
+RUUMIDE ELEMENDID (viide, milliseid tooteid eri tubades vajatakse):
+- Elutuba: diivan (ankur) + kohvilaud + tugitool + TV-alus/riiul + lamp/valgusti + vaip + dekoratiivsed patjad
+- Magamistuba: voodi (ankur) + öökapp + kummut/riietumislaud + peegel + lamp + vaip
+- Söögituba: söögilaud (ankur) + söögitoolid + puhvet/serveerimislaud + pendel/lamp + vaip
+- Köök: köögimööbel (ankur) + baaritool/taburet + riiul/hoidik + lamp
+- Kontor: kirjutuslaud/töölaud (ankur) + kontoritool + riiulikapp + lamp + aksessuaarid
+- Lastetuba: lastemööbel/voodi (ankur) + laud/töölaud + tool/istmik + riiul/hoiukas + lamp + vaip
+- Esik: riidekapp (ankur) + nagel/riidepuu + jalatsiriiul + peegel + pingike/tool
+
 REEGLID:
-- Iga komplekt peab katma ruumi ERINEVAD elemendid: nt elutuppa sobib diivan + laud + lamp + tekstiil + seinakaunistus
-- Ära lisa samast kategooriast mitut toodet (nt kaks lampi, kaks diivani, kaks tooli) — iga toode täidab unikaalse rolli
-- Rollide jaotus: 1 "ankur" (peamine mööbel), 1–3 "lisatoode" (täiendav mööbel eri kategooriast), 1–2 "aksessuaar" (valgustus/tekstiil/kunst/dekor)
-- Eelarve on orienteeriv — lisa ainult tooted mis ruumi tegelikult lõpetavad, ära sunni eelarvet täis
-- Kui klient eelistab konkreetset materjali, eelista seda materjali toodetes
+- Vali AINULT elemendid, mida klient on märkinud "Valitud elemendid" nimekirjas
+- Iga toode täidab unikaalse rolli — ära lisa samast kategooriast mitut toodet
+- Rollide jaotus: 1 "ankur" (peamine mööbel), 1–3 "lisatoode" (täiendav mööbel eri kategooriast), 1–2 "aksessuaar" (valgustus/tekstiil/dekor)
+- Igal elemendil on oma stiili- ja materjalieelistus — järgi neid täpselt (kui "Pole vahet", siis vali parim saadaolev)
+- Kui klient eelistab konkreetset materjali elemendil, eelista seda materjali selle elemendi tootes
 - Kui on lapsed või lemmikloomad, väldi kangast/nahka; eelista kunstnahka, mikrofiiber
-- Iga komplekt peab erinema teistest (erinev ankurtoode, fookus või stiil)
-- Kui kataloogis pole piisavalt sobivaid tooteid, tagasta vähem komplekte (aga vähemalt 1)
+- Iga komplekt peab erinema teistest (erinev ankurtoode, fookus või stiilikombinatsioon)
+- Eelarve on orienteeriv — ära sunni kõiki tooteid kataloogi piires maksimeerima
+- Kui kataloogis pole mõnele elemendile sobivat toodet, jäta see element vahele
+- Kui kataloogis pole piisavalt sobivaid tooteid üldse, tagasta vähem komplekte (aga vähemalt 1)
 - Iga toote whyChosen väli: konkreetne eestikeelne põhjendus miks just see toode sellele kliendile sobib
 
 Tagasta AINULT JSON massiiv, ilma selgitusteta:
@@ -372,16 +383,26 @@ Tagasta AINULT JSON massiiv, ilma selgitusteta:
   }
 ]`;
 
+  const elementPrefsText = answers.elementPreferences?.length
+    ? answers.elementPreferences
+        .map((ep) => `  - ${ep.element}: stiil=${ep.style}, materjal=${ep.material}`)
+        .join("\n")
+    : "  (täpsustamata)";
+
   const userContent = `KLIENDI EELISTUSED:
 - Ruum: ${answers.room}
 - Soovitud ankurtoode: ${answers.anchorProduct}
 - Eelarve: ${answers.budgetRange}${answers.budgetCustom ? ` (täpne: ${answers.budgetCustom}€)` : ""}
-- Stiil: ${answers.style}
-- Värvitoon: ${answers.colorTone}
+- Värvitoon (üldpalett): ${answers.colorTone}
 - Lapsi majas: ${answers.hasChildren ? "Jah" : "Ei"}
 - Lemmikloomi: ${answers.hasPets ? "Jah" : "Ei"}
-- Materjalieelistus: ${answers.materialPreference}
 ${answers.dimensionsKnown ? `- Ruumi mõõdud: ${answers.widthCm}cm x ${answers.lengthCm}cm` : ""}
+
+VALITUD ELEMENDID (koosta komplekt AINULT nendest):
+${(answers.selectedElements ?? []).map((e) => `  - ${e}`).join("\n") || "  (kõik ruumielemendid)"}
+
+ELEMENTIDE STIILI- JA MATERJALIEELISTUSED:
+${elementPrefsText}
 
 KATALOOG (${catalog.length} toodet):
 ${JSON.stringify(catalog, null, 2)}`;

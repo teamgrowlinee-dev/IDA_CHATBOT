@@ -8,12 +8,18 @@ router.post("/bundle", async (req, res) => {
   try {
     const answers = req.body as BundleAnswers;
 
-    if (!answers.room || !answers.budgetRange || !answers.style) {
-      res.status(400).json({ error: "Puuduvad kohustuslikud väljad: room, budgetRange, style" });
+    if (!answers.room || !answers.budgetRange) {
+      res.status(400).json({ error: "Puuduvad kohustuslikud väljad: room, budgetRange" });
       return;
     }
 
-    const bundles = await generateBundles(answers);
+    const normalizedAnswers: BundleAnswers = {
+      ...answers,
+      selectedElements: Array.isArray(answers.selectedElements) ? answers.selectedElements : [],
+      elementPreferences: Array.isArray(answers.elementPreferences) ? answers.elementPreferences : []
+    };
+
+    const bundles = await generateBundles(normalizedAnswers);
     const response: BundleResponse = {
       bundles,
       message: "Siin on sinu personaalsed komplektid:"

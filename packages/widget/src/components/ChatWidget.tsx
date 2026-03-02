@@ -242,15 +242,31 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           body: JSON.stringify(answers)
         });
         const data = await res.json();
-        setBundleResults(data.bundles ?? []);
+        if (!res.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+        }
+
+        const bundles = Array.isArray(data?.bundles) ? data.bundles : [];
+        setBundleFlowActive(false);
+        setBundleResults(bundles);
+        if (bundles.length === 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              role: "assistant",
+              text: "Selle valikuga ei leidnud sobivaid komplekte. Proovi muuta elemente või eelarvet."
+            }
+          ]);
+        }
       } catch (err) {
         console.error("[IDA] Bundle error:", err);
+        setBundleFlowActive(false);
         setBundleResults([]);
         setMessages((prev) => [
           ...prev,
           { id: nextId(), role: "assistant", text: "Komplektide genereerimine ebaõnnestus. Palun proovi uuesti." }
         ]);
-        setBundleFlowActive(false);
       } finally {
         setBundleLoading(false);
       }

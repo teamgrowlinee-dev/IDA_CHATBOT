@@ -96,7 +96,7 @@ export function scoreCatalogProduct(product: ProductCard, answers: BundleAnswers
   const allText = [titleLower, ...categoryNames].join(" ");
 
   // Style match
-  const styleKeywords = STYLE_KEYWORDS[answers.style] ?? [];
+  const styleKeywords = STYLE_KEYWORDS[answers.style ?? ""] ?? [];
   for (const kw of styleKeywords) {
     if (allText.includes(kw)) { score += 3; break; }
   }
@@ -114,8 +114,8 @@ export function scoreCatalogProduct(product: ProductCard, answers: BundleAnswers
   }
 
   // Material preference match
-  if (answers.materialPreference !== "Pole vahet") {
-    const matLower = answers.materialPreference.toLowerCase();
+  if ((answers.materialPreference ?? "Pole vahet") !== "Pole vahet") {
+    const matLower = (answers.materialPreference ?? "").toLowerCase();
     if (allText.includes(matLower)) score += 2;
 
     // Material conflict (kids/pets)

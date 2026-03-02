@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { BundleAnswers } from "../types.js";
+import type { BundleAnswers, ElementPreference } from "../types.js";
 
 interface BundleFlowProps {
   onComplete: (answers: BundleAnswers) => void;
@@ -18,6 +18,66 @@ const ANCHOR_OPTIONS: Record<string, string[]> = {
   "Esik": ["Riidekapp", "Nagel", "Bot vali ise"]
 };
 
+interface RoomElement {
+  name: string;
+  role: "ankur" | "lisatoode" | "aksessuaar";
+}
+
+const ROOM_ELEMENTS: Record<string, RoomElement[]> = {
+  "Elutuba": [
+    { name: "Diivan", role: "ankur" },
+    { name: "Kohvilaud", role: "lisatoode" },
+    { name: "Tugitool", role: "lisatoode" },
+    { name: "TV-alus / riiul", role: "lisatoode" },
+    { name: "Lamp / valgusti", role: "aksessuaar" },
+    { name: "Vaip", role: "aksessuaar" },
+    { name: "Dekoratiivsed patjad", role: "aksessuaar" }
+  ],
+  "Magamistuba": [
+    { name: "Voodi", role: "ankur" },
+    { name: "Öökapp", role: "lisatoode" },
+    { name: "Kummut / riietumislaud", role: "lisatoode" },
+    { name: "Peegel", role: "aksessuaar" },
+    { name: "Lamp / valgusti", role: "aksessuaar" },
+    { name: "Vaip", role: "aksessuaar" }
+  ],
+  "Söögituba": [
+    { name: "Söögilaud", role: "ankur" },
+    { name: "Söögitoolid", role: "lisatoode" },
+    { name: "Puhvet / serveerimislaud", role: "lisatoode" },
+    { name: "Pendel / lamp", role: "aksessuaar" },
+    { name: "Vaip", role: "aksessuaar" }
+  ],
+  "Köök": [
+    { name: "Köögimööbel", role: "ankur" },
+    { name: "Baaritool / taburet", role: "lisatoode" },
+    { name: "Riiul / hoidik", role: "lisatoode" },
+    { name: "Lamp / valgusti", role: "aksessuaar" }
+  ],
+  "Kontor": [
+    { name: "Kirjutuslaud / töölaud", role: "ankur" },
+    { name: "Kontoritool", role: "lisatoode" },
+    { name: "Riiulikapp", role: "lisatoode" },
+    { name: "Lamp", role: "aksessuaar" },
+    { name: "Aksessuaarid / dekor", role: "aksessuaar" }
+  ],
+  "Lastetuba": [
+    { name: "Lastemööbel / voodi", role: "ankur" },
+    { name: "Laud / töölaud", role: "lisatoode" },
+    { name: "Tool / istmik", role: "lisatoode" },
+    { name: "Riiul / hoiukas", role: "lisatoode" },
+    { name: "Lamp", role: "aksessuaar" },
+    { name: "Vaip", role: "aksessuaar" }
+  ],
+  "Esik": [
+    { name: "Riidekapp", role: "ankur" },
+    { name: "Nagel / riidepuu", role: "lisatoode" },
+    { name: "Jalatsiriiul", role: "lisatoode" },
+    { name: "Peegel", role: "aksessuaar" },
+    { name: "Pingike / tool", role: "lisatoode" }
+  ]
+};
+
 const BUDGET_OPTIONS = [
   { label: "2000 – 4000 €", value: "2000-4000" },
   { label: "4000 – 7000 €", value: "4000-7000" },
@@ -25,33 +85,65 @@ const BUDGET_OPTIONS = [
   { label: "Täpne summa", value: "custom" }
 ];
 
-const STYLES = ["Modern", "Skandinaavia", "Klassika", "Industriaal", "Boheem", "Luksus"];
-const COLOR_TONES = ["Hele", "Tume", "Neutraalne", "Kontrast"];
+const STYLES = ["Modern", "Skandinaavia", "Klassika", "Industriaal", "Boheem", "Luksus", "Pole vahet"];
 const MATERIALS = ["Puit", "Metall", "Kangas", "Nahk", "Kunstnahk", "Pole vahet"];
+const COLOR_TONES = ["Hele", "Tume", "Neutraalne", "Kontrast"];
 
-const TOTAL_STEPS = 6;
+const ROLE_LABEL: Record<RoomElement["role"], string> = {
+  ankur: "Põhitoode",
+  lisatoode: "Lisatoode",
+  aksessuaar: "Aksessuaar"
+};
+
+const TOTAL_STEPS = 7;
 
 export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Partial<BundleAnswers>>({
     hasChildren: false,
     hasPets: false,
-    dimensionsKnown: false,
-    materialPreference: "Pole vahet"
+    dimensionsKnown: false
   });
   const [customBudget, setCustomBudget] = useState("");
+  const [selectedElements, setSelectedElements] = useState<string[]>([]);
+  const [elementPrefs, setElementPrefs] = useState<Record<string, { style: string; material: string }>>({});
 
   const set = <K extends keyof BundleAnswers>(key: K, value: BundleAnswers[K]) =>
     setAnswers((prev) => ({ ...prev, [key]: value }));
+
+  const selectRoom = (room: string) => {
+    set("room", room);
+    const elements = ROOM_ELEMENTS[room] ?? [];
+    setSelectedElements(elements.map((e) => e.name));
+    const prefs: Record<string, { style: string; material: string }> = {};
+    for (const el of elements) {
+      prefs[el.name] = { style: "Pole vahet", material: "Pole vahet" };
+    }
+    setElementPrefs(prefs);
+  };
+
+  const toggleElement = (name: string) => {
+    setSelectedElements((prev) =>
+      prev.includes(name) ? prev.filter((e) => e !== name) : [...prev, name]
+    );
+  };
+
+  const setElementPref = (element: string, key: "style" | "material", value: string) => {
+    setElementPrefs((prev) => ({
+      ...prev,
+      [element]: { ...(prev[element] ?? { style: "Pole vahet", material: "Pole vahet" }), [key]: value }
+    }));
+  };
 
   const canNext = () => {
     switch (step) {
       case 0: return !!answers.room;
       case 1: return !!answers.anchorProduct;
       case 2: return !!answers.budgetRange && (answers.budgetRange !== "custom" || customBudget !== "");
-      case 3: return !!answers.style && !!answers.colorTone;
-      case 4: return !!answers.materialPreference;
-      case 5: return true;
+      case 3: return selectedElements.length > 0;
+      case 4: return true;
+      case 5: return !!answers.colorTone;
+      case 6: return true;
       default: return false;
     }
   };
@@ -63,8 +155,16 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
       }
       setStep((s) => s + 1);
     } else {
-      // Final step — complete
-      onComplete(answers as BundleAnswers);
+      const elementPreferences: ElementPreference[] = selectedElements.map((el) => ({
+        element: el,
+        style: elementPrefs[el]?.style ?? "Pole vahet",
+        material: elementPrefs[el]?.material ?? "Pole vahet"
+      }));
+      onComplete({
+        ...(answers as BundleAnswers),
+        selectedElements,
+        elementPreferences
+      });
     }
   };
 
@@ -79,7 +179,7 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
                 <button
                   key={room}
                   className={`gl-flow-option${answers.room === room ? " selected" : ""}`}
-                  onClick={() => set("room", room)}
+                  onClick={() => selectRoom(room)}
                 >
                   {room}
                 </button>
@@ -134,22 +234,73 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
           </div>
         );
 
-      case 3:
+      case 3: {
+        const roomElements = ROOM_ELEMENTS[answers.room ?? ""] ?? [];
         return (
           <div className="gl-flow-step">
-            <div className="gl-flow-question">Milline on sinu stiilieelistus?</div>
-            <div className="gl-flow-options">
-              {STYLES.map((s) => (
-                <button
-                  key={s}
-                  className={`gl-flow-option${answers.style === s ? " selected" : ""}`}
-                  onClick={() => set("style", s)}
-                >
-                  {s}
-                </button>
+            <div className="gl-flow-question">Millised elemendid soovid komplekti?</div>
+            <div className="gl-flow-hint">Vajuta elemendile selle eemaldamiseks</div>
+            <div className="gl-flow-elements">
+              {roomElements.map((el) => {
+                const isSelected = selectedElements.includes(el.name);
+                return (
+                  <button
+                    key={el.name}
+                    className={`gl-flow-element${isSelected ? " selected" : " removed"}`}
+                    onClick={() => toggleElement(el.name)}
+                  >
+                    <span className="gl-flow-element-name">{el.name}</span>
+                    <span className={`gl-flow-element-role gl-role-${el.role}`}>
+                      {ROLE_LABEL[el.role]}
+                    </span>
+                    <span className="gl-flow-element-toggle">{isSelected ? "✓" : "✕"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      case 4:
+        return (
+          <div className="gl-flow-step">
+            <div className="gl-flow-question">Iga elemendi stiil ja materjal</div>
+            <div className="gl-flow-hint">"Pole vahet" lubab AI-l leida parima sobiva toote</div>
+            <div className="gl-element-prefs">
+              {selectedElements.map((el) => (
+                <div key={el} className="gl-element-pref-row">
+                  <div className="gl-element-pref-name">{el}</div>
+                  <div className="gl-element-pref-selects">
+                    <select
+                      className="gl-element-pref-select"
+                      value={elementPrefs[el]?.style ?? "Pole vahet"}
+                      onChange={(e) => setElementPref(el, "style", e.target.value)}
+                    >
+                      {STYLES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="gl-element-pref-select"
+                      value={elementPrefs[el]?.material ?? "Pole vahet"}
+                      onChange={(e) => setElementPref(el, "material", e.target.value)}
+                    >
+                      {MATERIALS.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               ))}
             </div>
-            <div className="gl-flow-question" style={{ marginTop: 14 }}>Milline värvitoon sobib?</div>
+          </div>
+        );
+
+      case 5:
+        return (
+          <div className="gl-flow-step">
+            <div className="gl-flow-question">Milline värvitoon sobib ruumile?</div>
             <div className="gl-flow-options">
               {COLOR_TONES.map((c) => (
                 <button
@@ -161,58 +312,32 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
                 </button>
               ))}
             </div>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="gl-flow-step">
-            <div className="gl-flow-question">Kas sul on lapsed?</div>
+            <div className="gl-flow-question" style={{ marginTop: 14 }}>Kas sul on lapsed?</div>
             <div className="gl-flow-options">
               <button
                 className={`gl-flow-option${answers.hasChildren ? " selected" : ""}`}
                 onClick={() => set("hasChildren", true)}
-              >
-                Jah
-              </button>
+              >Jah</button>
               <button
                 className={`gl-flow-option${!answers.hasChildren ? " selected" : ""}`}
                 onClick={() => set("hasChildren", false)}
-              >
-                Ei
-              </button>
+              >Ei</button>
             </div>
             <div className="gl-flow-question" style={{ marginTop: 14 }}>Kas sul on lemmikloomad?</div>
             <div className="gl-flow-options">
               <button
                 className={`gl-flow-option${answers.hasPets ? " selected" : ""}`}
                 onClick={() => set("hasPets", true)}
-              >
-                Jah
-              </button>
+              >Jah</button>
               <button
                 className={`gl-flow-option${!answers.hasPets ? " selected" : ""}`}
                 onClick={() => set("hasPets", false)}
-              >
-                Ei
-              </button>
-            </div>
-            <div className="gl-flow-question" style={{ marginTop: 14 }}>Eelistatud materjal?</div>
-            <div className="gl-flow-options">
-              {MATERIALS.map((m) => (
-                <button
-                  key={m}
-                  className={`gl-flow-option${answers.materialPreference === m ? " selected" : ""}`}
-                  onClick={() => set("materialPreference", m)}
-                >
-                  {m}
-                </button>
-              ))}
+              >Ei</button>
             </div>
           </div>
         );
 
-      case 5:
+      case 6:
         return (
           <div className="gl-flow-step">
             <div className="gl-flow-question">Kas tead ruumi mõõtmeid?</div>
@@ -220,15 +345,11 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
               <button
                 className={`gl-flow-option${answers.dimensionsKnown ? " selected" : ""}`}
                 onClick={() => set("dimensionsKnown", true)}
-              >
-                Jah
-              </button>
+              >Jah</button>
               <button
                 className={`gl-flow-option${!answers.dimensionsKnown ? " selected" : ""}`}
                 onClick={() => set("dimensionsKnown", false)}
-              >
-                Ei
-              </button>
+              >Ei</button>
             </div>
             {answers.dimensionsKnown && (
               <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
