@@ -19,10 +19,10 @@ const ANCHOR_OPTIONS: Record<string, string[]> = {
 };
 
 const BUDGET_OPTIONS = [
-  { label: "300 – 600 €", value: "300-600" },
-  { label: "600 – 1000 €", value: "600-1000" },
-  { label: "1000 – 2000 €", value: "1000-2000" },
-  { label: "2000+ €", value: "2000+" },
+  { label: "800 – 1500 €", value: "800-1500" },
+  { label: "1500 – 3000 €", value: "1500-3000" },
+  { label: "3000 – 6000 €", value: "3000-6000" },
+  { label: "6000+ €", value: "6000+" },
   { label: "Täpne summa", value: "custom" }
 ];
 

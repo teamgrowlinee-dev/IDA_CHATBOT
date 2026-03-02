@@ -246,21 +246,68 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
 
   const handleAddAllToCart = useCallback(
     async (items: BundleItem[]) => {
+      const safeStoreOrigin = (() => {
+        try { return new URL(storeOrigin).origin; } catch { return window.location.origin; }
+      })();
+      const sameOrigin = safeStoreOrigin === window.location.origin;
+
+      setBundleResults(null);
+      setBundleFlowActive(false);
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: "assistant", text: `Lisan ${items.length} toodet ostukorvi...` }
       ]);
+
+      let added = 0;
+      const failed: BundleItem[] = [];
+
       for (const item of items) {
-        await handleAddToCart(item as ProductCardType);
+        const productId = (() => {
+          const n = Number(String(item.variantId ?? item.id).trim());
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })();
+
+        if (productId && sameOrigin) {
+          try {
+            const body = new URLSearchParams();
+            body.set("product_id", String(productId));
+            body.set("quantity", "1");
+            const res = await fetch("/?wc-ajax=add_to_cart", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", Accept: "application/json" },
+              body: body.toString()
+            });
+            if (res.ok) { added++; continue; }
+          } catch { /* fall through */ }
+        }
+        failed.push(item);
       }
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: "assistant", text: "Komplekt lisatud ostukorvi!" }
-      ]);
-      setBundleResults(null);
-      setBundleFlowActive(false);
+
+      if (added > 0 && failed.length === 0) {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "assistant", text: `Kõik ${added} toodet lisatud ostukorvi! Vaata ostukorvi: ${safeStoreOrigin}/ostukorv/` }
+        ]);
+      } else if (added > 0) {
+        const failedTitles = failed.map((f) => f.title).join(", ");
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "assistant", text: `${added} toodet lisatud. Neid tooteid ei saanud lisada: ${failedTitles}. Vaata otse: ${safeStoreOrigin}/ostukorv/` }
+        ]);
+      } else {
+        // Cross-origin or all failed — open cart/product pages
+        for (const item of items) {
+          const url = item.permalink || `${safeStoreOrigin}/toode/${item.handle}/`;
+          window.open(url, "_blank", "noopener,noreferrer");
+        }
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "assistant", text: "Avasin kõik tooted uutes aknadesignis. Lisa need käsitsi ostukorvi." }
+        ]);
+      }
     },
-    [handleAddToCart]
+    [storeOrigin]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

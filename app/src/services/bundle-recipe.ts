@@ -82,12 +82,12 @@ export function parseBudgetMax(answers: BundleAnswers): number {
     return answers.budgetCustom;
   }
   const ranges: Record<string, number> = {
-    "300-600": 600,
-    "600-1000": 1000,
-    "1000-2000": 2000,
-    "2000+": 5000
+    "800-1500": 1500,
+    "1500-3000": 3000,
+    "3000-6000": 6000,
+    "6000+": 15000
   };
-  return ranges[answers.budgetRange] ?? 1000;
+  return ranges[answers.budgetRange] ?? 3000;
 }
 
 export function scoreCatalogProduct(product: ProductCard, answers: BundleAnswers): number {
