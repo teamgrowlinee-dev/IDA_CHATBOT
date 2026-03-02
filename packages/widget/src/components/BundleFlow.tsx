@@ -96,6 +96,60 @@ const ROLE_LABEL: Record<RoomElement["role"], string> = {
 
 const TOTAL_STEPS = 7;
 
+const normalizeForMatch = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const inferElementSpecKey = (rawText: string): string | null => {
+  const text = normalizeForMatch(rawText);
+  if (!text) return null;
+  if (text.includes("kirjutuslaud") || text.includes("toolaud") || text.includes("arvutilaud")) return "desk";
+  if (text.includes("kontoritool")) return "office-chair";
+  if (text.includes("soogilaud")) return "dining-table";
+  if (text.includes("diivanilaud") || text.includes("kohvilaud") || text.includes("abilaud")) return "coffee-table";
+  if (text.includes("diivan") || text.includes("sohva")) return "sofa";
+  if (text.includes("tugitool")) return "armchair";
+  if (text.includes("ookapp")) return "nightstand";
+  if (text.includes("kummut") || text.includes("riietumislaud") || text.includes("puhvet")) return "dresser";
+  if (text.includes("riidekapp")) return "wardrobe";
+  if (text.includes("riiul")) return "shelf";
+  if (text.includes("nagel") || text.includes("riidepuu")) return "hall-rack";
+  if (text.includes("peegel")) return "mirror";
+  if (text.includes("lamp") || text.includes("valgusti") || text.includes("pendel")) return "lamp";
+  if (text.includes("vaip")) return "rug";
+  if (text.includes("dekor") || text.includes("aksessuaar")) return "decor";
+  if (text.includes("koogimoobel") || text.includes("kook")) return "kitchen-furniture";
+  if (text.includes("pingike") || text.includes("pink") || text.includes("tumba")) return "bench";
+  if (text.includes("voodi")) return "bed";
+  if (text.includes("tool")) return "chair";
+  return null;
+};
+
+const resolveAnchorElementForRoom = (room: string | undefined, anchorProduct: string | undefined): string | null => {
+  if (!room || !anchorProduct || anchorProduct === "Bot vali ise") return null;
+  const elements = ROOM_ELEMENTS[room] ?? [];
+  if (!elements.length) return null;
+
+  const anchorSpecKey = inferElementSpecKey(anchorProduct);
+  if (anchorSpecKey) {
+    const sameSpecElement = elements.find((el) => inferElementSpecKey(el.name) === anchorSpecKey);
+    if (sameSpecElement) return sameSpecElement.name;
+  }
+
+  const normalizedAnchor = normalizeForMatch(anchorProduct);
+  const byName = elements.find((el) => {
+    const normalizedElement = normalizeForMatch(el.name);
+    return normalizedElement.includes(normalizedAnchor) || normalizedAnchor.includes(normalizedElement);
+  });
+
+  return byName?.name ?? null;
+};
+
 export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Partial<BundleAnswers>>({
@@ -106,6 +160,7 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
   const [customBudget, setCustomBudget] = useState("");
   const [selectedElements, setSelectedElements] = useState<string[]>([]);
   const [elementPrefs, setElementPrefs] = useState<Record<string, string>>({});
+  const lockedAnchorElement = resolveAnchorElementForRoom(answers.room, answers.anchorProduct);
 
   const set = <K extends keyof BundleAnswers>(key: K, value: BundleAnswers[K]) =>
     setAnswers((prev) => ({ ...prev, [key]: value }));
@@ -122,9 +177,28 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
   };
 
   const toggleElement = (name: string) => {
-    setSelectedElements((prev) =>
-      prev.includes(name) ? prev.filter((e) => e !== name) : [...prev, name]
-    );
+    setSelectedElements((prev) => {
+      if (prev.includes(name)) {
+        if (lockedAnchorElement === name) return prev;
+        return prev.filter((e) => e !== name);
+      }
+      return [...prev, name];
+    });
+  };
+
+  const selectAnchorProduct = (anchorProduct: string) => {
+    set("anchorProduct", anchorProduct);
+    const mappedAnchorElement = resolveAnchorElementForRoom(answers.room, anchorProduct);
+    if (!mappedAnchorElement) return;
+
+    setSelectedElements((prev) => {
+      if (prev.includes(mappedAnchorElement)) return prev;
+      const roomElements = ROOM_ELEMENTS[answers.room ?? ""] ?? [];
+      const next = [...prev, mappedAnchorElement];
+      return roomElements.length > 0 ? roomElements.map((el) => el.name).filter((name) => next.includes(name)) : next;
+    });
+
+    setElementPrefs((prev) => (mappedAnchorElement in prev ? prev : { ...prev, [mappedAnchorElement]: "Pole vahet" }));
   };
 
   const setElementPref = (element: string, value: string) => {
@@ -196,7 +270,7 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
                 <button
                   key={opt}
                   className={`gl-flow-option${answers.anchorProduct === opt ? " selected" : ""}`}
-                  onClick={() => set("anchorProduct", opt)}
+                  onClick={() => selectAnchorProduct(opt)}
                 >
                   {opt}
                 </button>
@@ -238,21 +312,23 @@ export default function BundleFlow({ onComplete, onCancel }: BundleFlowProps) {
         return (
           <div className="gl-flow-step">
             <div className="gl-flow-question">Millised elemendid soovid komplekti?</div>
-            <div className="gl-flow-hint">Vajuta elemendile selle eemaldamiseks</div>
+            <div className="gl-flow-hint">Vajuta elemendile selle eemaldamiseks. Valitud põhitoode jääb alati sisse.</div>
             <div className="gl-flow-elements">
               {roomElements.map((el) => {
                 const isSelected = selectedElements.includes(el.name);
+                const isLocked = lockedAnchorElement === el.name && isSelected;
                 return (
                   <button
                     key={el.name}
-                    className={`gl-flow-element${isSelected ? " selected" : " removed"}`}
+                    className={`gl-flow-element${isSelected ? " selected" : " removed"}${isLocked ? " locked" : ""}`}
                     onClick={() => toggleElement(el.name)}
+                    disabled={isLocked}
                   >
                     <span className="gl-flow-element-name">{el.name}</span>
                     <span className={`gl-flow-element-role gl-role-${el.role}`}>
                       {ROLE_LABEL[el.role]}
                     </span>
-                    <span className="gl-flow-element-toggle">{isSelected ? "✓" : "✕"}</span>
+                    <span className="gl-flow-element-toggle">{isLocked ? "🔒" : isSelected ? "✓" : "✕"}</span>
                   </button>
                 );
               })}

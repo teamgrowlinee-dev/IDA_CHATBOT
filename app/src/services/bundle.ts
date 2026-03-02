@@ -259,6 +259,20 @@ const ACCESSORY_SPEC_KEYS = new Set<MenuElementKey>(["lamp", "rug", "decor", "mi
 
 const MAX_ALTERNATIVES_PER_ITEM = 4;
 
+const ensureAnchorSpecInSelection = (
+  specs: SelectedElementSpec[],
+  answers: BundleAnswers
+): SelectedElementSpec[] => {
+  const anchorSpecKey = inferSpecKeyFromText(answers.anchorProduct ?? "");
+  if (!anchorSpecKey) return specs;
+  if (specs.some((spec) => spec.specKey === anchorSpecKey)) return specs;
+
+  const anchorSpec = ELEMENT_SPEC[anchorSpecKey];
+  if (!anchorSpec) return specs;
+
+  return [{ element: answers.anchorProduct || "Ankurtoode", specKey: anchorSpecKey, spec: anchorSpec }, ...specs];
+};
+
 const resolveSelectedElementSpecs = (answers: BundleAnswers): SelectedElementSpec[] => {
   const roomSpec = ROOM_MENU_SPEC[answers.room];
   if (!roomSpec) return [];
@@ -281,10 +295,13 @@ const resolveSelectedElementSpecs = (answers: BundleAnswers): SelectedElementSpe
 const rankCandidatesForSpec = (
   catalog: CatalogProductRaw[],
   spec: { slugs: string[]; keywords: string[] },
-  answers: BundleAnswers
+  answers: BundleAnswers,
+  specKey?: MenuElementKey
 ): ProductCard[] => {
   const specSlugs = new Set(spec.slugs);
   const specKeywords = spec.keywords.map((keyword) => normalizeForMatch(keyword));
+  const bedPenaltySlugs = new Set(["diivanid", "diivanvoodid", "2-kohalised-diivanid", "3-ja-4-kohalised-diivanid", "lamamistoolid", "aed-terrass"]);
+  const bedPreferredSlugs = new Set(["voodid-voodipeatsid"]);
 
   return catalog
     .map((product) => {
@@ -298,6 +315,13 @@ const rankCandidatesForSpec = (
       if (slugMatch) score += 28;
       if (keywordMatch) score += 10;
       if (normalizeForMatch(card.title).includes("defektiga")) score -= 4;
+
+      // Bedroom anchor should prefer real bed products over sofa/outdoor variants.
+      if (specKey === "bed") {
+        if (hasAnySlug(product, bedPreferredSlugs)) score += 20;
+        if (hasAnySlug(product, bedPenaltySlugs)) score -= 12;
+        if (searchable.includes("diivanvoodi")) score -= 7;
+      }
 
       return { card, score };
     })
@@ -404,9 +428,10 @@ function attachAlternativesToBundles(
 
 function buildStrictBundleFromSelections(
   catalog: CatalogProductRaw[],
+  rawCatalog: CatalogProductRaw[],
   answers: BundleAnswers
 ): Bundle | null {
-  const selectedSpecs = resolveSelectedElementSpecs(answers);
+  const selectedSpecs = ensureAnchorSpecInSelection(resolveSelectedElementSpecs(answers), answers);
   if (!selectedSpecs.length) return null;
 
   const anchorSpecKey = inferSpecKeyFromText(answers.anchorProduct) ?? selectedSpecs[0]?.specKey ?? null;
@@ -418,8 +443,14 @@ function buildStrictBundleFromSelections(
   let anchorAssigned = false;
 
   for (const selected of selectedSpecs) {
-    const candidates = rankCandidatesForSpec(catalog, selected.spec, answers);
-    const picked = candidates.find((candidate) => !usedIds.has(candidate.id));
+    const candidates = rankCandidatesForSpec(catalog, selected.spec, answers, selected.specKey);
+    let picked = candidates.find((candidate) => !usedIds.has(candidate.id));
+
+    if (!picked) {
+      const focusedCatalog = filterByRoom(rawCatalog, answers.room, [selected.element], answers.anchorProduct ?? "");
+      const focusedCandidates = rankCandidatesForSpec(focusedCatalog, selected.spec, answers, selected.specKey);
+      picked = focusedCandidates.find((candidate) => !usedIds.has(candidate.id));
+    }
 
     if (!picked) {
       missingElements.push(selected.element);
@@ -663,7 +694,7 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
     answers.selectedElements ?? [],
     answers.anchorProduct ?? ""
   );
-  const strictBundle = buildStrictBundleFromSelections(filtered, answers);
+  const strictBundle = buildStrictBundleFromSelections(filtered, rawCatalog, answers);
 
   // Build a lookup map: id → full raw product
   const catalogById = new Map<string, CatalogProductRaw>();
