@@ -687,17 +687,21 @@
 .gl-bundle-item-title a:hover { text-decoration: underline; }
 .gl-bundle-item-price { font-size: 13px; color: #c9a87c; margin-top: 2px; }
 .gl-bundle-item-why { font-size: 11px; color: #8a7060; margin-top: 2px; }
-.gl-bundle-swap {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
+.gl-bundle-remove {
+  background: rgba(255,80,80,0.12);
+  border: 1px solid rgba(255,80,80,0.25);
   border-radius: 6px;
-  color: #b59f89;
+  color: #e07070;
   width: 28px;
   height: 28px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 11px;
   flex-shrink: 0;
+  transition: background 0.15s;
+  line-height: 1;
 }
+.gl-bundle-remove:hover { background: rgba(255,80,80,0.25); }
+.gl-bundle-removed-note { font-size: 11px; color: #8a7060; font-weight: 400; }
 .gl-bundle-reasons {
   padding: 8px 12px;
   display: flex;

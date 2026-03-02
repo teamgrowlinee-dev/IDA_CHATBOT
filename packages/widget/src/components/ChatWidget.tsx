@@ -218,6 +218,20 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
     [storeOrigin]
   );
 
+  const handleRemoveBundleItem = useCallback((bundleIndex: number, itemId: string) => {
+    setBundleResults((prev) => {
+      if (!prev) return prev;
+      return prev.map((bundle, i) => {
+        if (i !== bundleIndex) return bundle;
+        const items = bundle.items.filter((item) => item.id !== itemId);
+        const totalPrice = items.reduce(
+          (s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0
+        );
+        return { ...bundle, items, totalPrice };
+      });
+    });
+  }, []);
+
   const handleBundleComplete = useCallback(
     async (answers: BundleAnswers) => {
       setBundleLoading(true);
@@ -472,6 +486,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
                     key={i}
                     bundle={bundle}
                     onAddAll={handleAddAllToCart}
+                    onRemoveItem={(itemId) => handleRemoveBundleItem(i, itemId)}
                   />
                 ))}
                 <button

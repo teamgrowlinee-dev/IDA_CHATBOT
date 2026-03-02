@@ -346,14 +346,16 @@ export const generateBundlesWithAI = async (
 Saad kliendi eelistused ja poe tootekataloogist filtreeritud toodete nimekirja.
 Sinu ülesanne: vali kataloogist sobivad tooted ja koosta 1–3 erinevat terviklikku mööblikomplekti.
 
-Reeglid:
-- Iga komplekt sisaldab 2–4 toodet: üks "ankur" (peamine toode), üks-kaks "lisatoode" ja soovi korral "aksessuaar"
-- Eelarve on kogu komplekti kohta — jaga see mõistlikult toodete vahel
-- Kui klient eelistab konkreetset materjali, vali seda materjali sisaldavad tooted
+PEAMINE REEGEL: Lisa komplekti NIIPALJU tooteid kui võimalik, täites eelarve maksimaalselt ära.
+- Iga komplekt peab sisaldama VÄHEMALT 4–5 toodet (rohkem on parem)
+- Lisa ankurtoode + lisatooted + dekoratiivesemed + valgustus + tekstiilid jne — kõik mis ruumi lõpetab
+- Eelarve on kogu komplekti kohta — kasuta eelarvet täismahus, ära jäta raha "lauale"
+- Rollide jaotus: 1 "ankur" (peamine mööbel), 2–3 "lisatoode" (täiendav mööbel/valgustus), 1–3 "aksessuaar" (tekstiilid/kunst/dekor)
+- Kui klient eelistab konkreetset materjali, eelista seda materjali toodetes
 - Kui on lapsed või lemmikloomad, väldi kangast/nahka; eelista kunstnahka, mikrofiiber või kergesti puhastatavaid materjale
-- Iga komplekt peab erinema teistest (erinev stiil, ankurtoode või värvitoon)
+- Iga komplekt peab erinema teistest (erinev fookus, stiil või ankurtoode)
 - Kui kataloogis pole piisavalt sobivaid tooteid, tagasta vähem komplekte (aga vähemalt 1)
-- Iga toote whyChosen väli peab olema konkreetne eestikeelne põhjendus (miks just see toode sellele kliendile)
+- Iga toote whyChosen väli: konkreetne eestikeelne põhjendus miks just see toode sellele kliendile sobib
 
 Tagasta AINULT JSON massiiv, ilma selgitusteta:
 [
@@ -364,7 +366,9 @@ Tagasta AINULT JSON massiiv, ilma selgitusteta:
     "tradeoffs": ["kompromiss (kui on, muidu tühi massiiv)"],
     "items": [
       { "id": "toote_id_kataloogist", "roleInBundle": "ankur", "whyChosen": "Konkreetne põhjus eesti keeles" },
-      { "id": "toote_id_kataloogist", "roleInBundle": "lisatoode", "whyChosen": "Konkreetne põhjus" }
+      { "id": "toote_id_kataloogist", "roleInBundle": "lisatoode", "whyChosen": "Konkreetne põhjus" },
+      { "id": "toote_id_kataloogist", "roleInBundle": "lisatoode", "whyChosen": "Konkreetne põhjus" },
+      { "id": "toote_id_kataloogist", "roleInBundle": "aksessuaar", "whyChosen": "Viimistleb ruumi" }
     ]
   }
 ]`;

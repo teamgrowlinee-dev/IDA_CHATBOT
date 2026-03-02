@@ -1,9 +1,10 @@
+import { useState } from "react";
 import type { Bundle, BundleItem } from "../types.js";
 
 interface BundleCardProps {
   bundle: Bundle;
   onAddAll: (items: BundleItem[]) => void;
-  onSwapItem?: (item: BundleItem) => void;
+  onRemoveItem: (itemId: string) => void;
 }
 
 const ROLE_LABEL: Record<BundleItem["roleInBundle"], string> = {
@@ -12,17 +13,33 @@ const ROLE_LABEL: Record<BundleItem["roleInBundle"], string> = {
   aksessuaar: "Aksessuaar"
 };
 
-export default function BundleCard({ bundle, onAddAll, onSwapItem }: BundleCardProps) {
+export default function BundleCard({ bundle, onAddAll, onRemoveItem }: BundleCardProps) {
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+
+  const visibleItems = bundle.items.filter((item) => !removedIds.has(item.id));
+  const visibleTotal = visibleItems.reduce(
+    (s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0
+  );
+  const removedCount = bundle.items.length - visibleItems.length;
+
+  const handleRemove = (id: string) => {
+    setRemovedIds((prev) => new Set([...prev, id]));
+    onRemoveItem(id);
+  };
+
   return (
     <div className="gl-bundle">
       <div className="gl-bundle-header">
         <div className="gl-bundle-title">{bundle.title}</div>
         <div className="gl-bundle-summary">{bundle.styleSummary}</div>
-        <div className="gl-bundle-total">Kokku: {bundle.totalPrice.toFixed(2)}€</div>
+        <div className="gl-bundle-total">
+          Kokku: {visibleTotal.toFixed(2)}€
+          {removedCount > 0 && <span className="gl-bundle-removed-note"> ({removedCount} eemaldatud)</span>}
+        </div>
       </div>
 
       <div className="gl-bundle-items">
-        {bundle.items.map((item) => (
+        {visibleItems.map((item) => (
           <div key={item.id} className="gl-bundle-item">
             {item.image && (
               <img src={item.image} alt={item.title} className="gl-bundle-item-img" loading="lazy" />
@@ -41,11 +58,14 @@ export default function BundleCard({ bundle, onAddAll, onSwapItem }: BundleCardP
               <div className="gl-bundle-item-price">{item.price}</div>
               <div className="gl-bundle-item-why">{item.whyChosen}</div>
             </div>
-            {onSwapItem && (
-              <button className="gl-bundle-swap" onClick={() => onSwapItem(item)} title="Vaheta toode">
-                ↻
-              </button>
-            )}
+            <button
+              className="gl-bundle-remove"
+              onClick={() => handleRemove(item.id)}
+              title="Eemalda komplektist"
+              aria-label="Eemalda"
+            >
+              ✕
+            </button>
           </div>
         ))}
       </div>
@@ -66,8 +86,12 @@ export default function BundleCard({ bundle, onAddAll, onSwapItem }: BundleCardP
         </div>
       )}
 
-      <button className="gl-bundle-add-all" onClick={() => onAddAll(bundle.items)}>
-        Lisa kogu komplekt ostukorvi
+      <button
+        className="gl-bundle-add-all"
+        onClick={() => onAddAll(visibleItems)}
+        disabled={visibleItems.length === 0}
+      >
+        Lisa komplekt ostukorvi ({visibleItems.length} toodet · {visibleTotal.toFixed(2)}€)
       </button>
     </div>
   );
