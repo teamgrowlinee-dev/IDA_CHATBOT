@@ -1,9 +1,8 @@
-import type { Bundle, BundleAnswers, BundleItem } from "../types/chat.js";
+import type { Bundle, BundleAnswers, BundleItem, ProductCard } from "../types/chat.js";
 import { fetchProductCatalog } from "./storefront-tools.js";
 import { BUNDLE_ROLES, ROOM_CATEGORIES, parseBudgetMax, scoreCatalogProduct } from "./bundle-recipe.js";
-import { generateBundleSummary } from "./llm.js";
+import { generateBundlesWithAI, type CatalogItemForAI } from "./llm.js";
 import { env } from "../config/env.js";
-import type { ProductCard } from "../types/chat.js";
 
 interface CatalogProductRaw {
   id: string;
@@ -18,7 +17,6 @@ interface CatalogProductRaw {
   description: string;
 }
 
-// Convert raw catalog product to ProductCard format for scoring
 function toProductCard(p: CatalogProductRaw): ProductCard {
   return {
     id: p.id,
@@ -34,111 +32,69 @@ function toProductCard(p: CatalogProductRaw): ProductCard {
   };
 }
 
+// Pre-filter by room keywords so AI receives a relevant, smaller catalog
 function filterByRoom(catalog: CatalogProductRaw[], room: string): CatalogProductRaw[] {
   const keywords = ROOM_CATEGORIES[room] ?? [];
-  if (!keywords.length) return catalog;
-  return catalog.filter((p) => {
+  if (!keywords.length) return catalog.slice(0, 60);
+  const filtered = catalog.filter((p) => {
     const allText = [p.title, ...p.categories, p.description].join(" ").toLowerCase();
     return keywords.some((kw) => allText.includes(kw));
   });
+  // Broaden if room filter yields too few candidates
+  return filtered.length >= 5 ? filtered.slice(0, 60) : catalog.slice(0, 60);
 }
 
-function filterByMaterial(catalog: CatalogProductRaw[], material: string): CatalogProductRaw[] {
-  if (material === "Pole vahet") return catalog;
-  const matLower = material.toLowerCase();
-  return catalog.filter((p) => {
-    const allText = [p.title, ...p.categories, p.description].join(" ").toLowerCase();
-    return allText.includes(matLower);
-  });
-}
-
-function matchesRoleKeywords(product: CatalogProductRaw, keywords: string[]): boolean {
-  const allText = [product.title, ...product.categories, product.description].join(" ").toLowerCase();
-  return keywords.some((kw) => allText.includes(kw));
-}
-
-export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]> {
-  const rawCatalog = (await fetchProductCatalog()) as unknown as CatalogProductRaw[];
-
-  // Filter by room relevance
-  let filtered = filterByRoom(rawCatalog, answers.room);
-
-  // Soft filter by material if specified (don't hard-filter, just reduce candidates)
+// Fallback: scoring-based bundle building (used when OpenAI is unavailable)
+function buildBundlesByScoring(filtered: CatalogProductRaw[], answers: BundleAnswers): Bundle[] {
   const budgetMax = parseBudgetMax(answers);
-
-  // Build role slots
   const roleSlots = BUNDLE_ROLES[answers.room] ?? [
     { role: "ankur" as const, keywords: [], required: true },
     { role: "lisatoode" as const, keywords: [], required: true },
     { role: "aksessuaar" as const, keywords: [], required: false }
   ];
 
-  // Score all products per role slot
-  const roleRanked: Array<ProductCard[]> = roleSlots.map((slot) => {
+  const roleRanked: ProductCard[][] = roleSlots.map((slot) => {
     let candidates = filtered.filter((p) => {
-      if (slot.keywords.length === 0) return true;
-      return matchesRoleKeywords(p, slot.keywords);
+      if (!slot.keywords.length) return true;
+      const allText = [p.title, ...p.categories, p.description].join(" ").toLowerCase();
+      return slot.keywords.some((kw) => allText.includes(kw));
     });
-
     if (!candidates.length) candidates = filtered;
-
-    // Sort by score descending
     return candidates
       .map((p) => ({ card: toProductCard(p), score: scoreCatalogProduct(toProductCard(p), answers) }))
       .sort((a, b) => b.score - a.score)
       .map((x) => x.card)
-      .slice(0, 10); // keep top 10 per role
+      .slice(0, 10);
   });
 
-  // Build up to 3 bundles by picking rank 0/1/2 candidate per role slot
   const bundles: Bundle[] = [];
   for (let i = 0; i < 3; i++) {
     const items: BundleItem[] = [];
     const usedIds = new Set<string>();
-
-    for (let slotIdx = 0; slotIdx < roleSlots.length; slotIdx++) {
-      const slot = roleSlots[slotIdx];
-      const candidates = roleRanked[slotIdx] ?? [];
-
-      // Pick i-th unique candidate
+    for (let si = 0; si < roleSlots.length; si++) {
+      const slot = roleSlots[si];
+      const candidates = roleRanked[si] ?? [];
       let picked: ProductCard | null = null;
-      let candidateIdx = i;
-      while (candidateIdx < candidates.length) {
-        const candidate = candidates[candidateIdx];
-        if (!usedIds.has(candidate.id)) {
-          picked = candidate;
-          break;
-        }
-        candidateIdx++;
+      let ci = i;
+      while (ci < candidates.length) {
+        if (!usedIds.has(candidates[ci].id)) { picked = candidates[ci]; break; }
+        ci++;
       }
-
-      // Fallback to any unfiltered product if no candidate found for required slot
       if (!picked && slot.required) {
         const fallback = filtered.find((p) => !usedIds.has(p.id));
         if (fallback) picked = toProductCard(fallback);
       }
-
       if (picked) {
         usedIds.add(picked.id);
         items.push({
           ...picked,
           roleInBundle: slot.role,
-          whyChosen: slot.role === "ankur"
-            ? "Komplekti põhitoode"
-            : slot.role === "lisatoode"
-              ? "Täiendab põhitoodet"
-              : "Viimistleb ruumi"
+          whyChosen: slot.role === "ankur" ? "Komplekti põhitoode" : slot.role === "lisatoode" ? "Täiendab põhitoodet" : "Viimistleb ruumi"
         });
       }
     }
-
     if (!items.length) continue;
-
-    const totalPrice = items.reduce((sum, item) => {
-      const price = parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0");
-      return sum + price;
-    }, 0);
-
+    const totalPrice = items.reduce((s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0);
     bundles.push({
       title: `Komplekt ${i + 1}`,
       styleSummary: `${answers.style} stiil, ${answers.colorTone.toLowerCase()} toonid`,
@@ -152,16 +108,55 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
       tradeoffs: totalPrice > budgetMax ? [`Koguhind ületab eelarve ${(totalPrice - budgetMax).toFixed(0)}€ võrra`] : []
     });
   }
+  return bundles;
+}
 
-  // Enrich with AI summaries if OpenAI is available
-  if (env.USE_OPENAI && env.OPENAI_API_KEY && bundles.length > 0) {
+export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]> {
+  const rawCatalog = (await fetchProductCatalog()) as unknown as CatalogProductRaw[];
+  const filtered = filterByRoom(rawCatalog, answers.room);
+
+  // Build a lookup map: id → full raw product
+  const catalogById = new Map<string, CatalogProductRaw>();
+  for (const p of rawCatalog) catalogById.set(p.id, p);
+
+  // AI path — AI receives simplified catalog and selects products itself
+  if (env.USE_OPENAI && env.OPENAI_API_KEY) {
+    const simplifiedCatalog: CatalogItemForAI[] = filtered.map((p) => ({
+      id: p.id,
+      title: p.title,
+      price: `${p.price.toFixed(2)}€`,
+      categories: p.categories,
+      description: p.description.slice(0, 200)
+    }));
+
     try {
-      const enriched = await generateBundleSummary(answers, bundles);
-      if (enriched.length > 0) return enriched;
+      const aiBundles = await generateBundlesWithAI(simplifiedCatalog, answers);
+      if (aiBundles && aiBundles.length > 0) {
+        const result = aiBundles
+          .map((ab) => {
+            const items: BundleItem[] = ab.items
+              .map((ai) => {
+                const raw = catalogById.get(ai.id);
+                if (!raw) return null;
+                return { ...toProductCard(raw), roleInBundle: ai.roleInBundle, whyChosen: ai.whyChosen } satisfies BundleItem;
+              })
+              .filter((x): x is BundleItem => x !== null);
+
+            if (!items.length) return null;
+            const totalPrice = items.reduce(
+              (s, item) => s + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0
+            );
+            return { title: ab.title, styleSummary: ab.styleSummary, totalPrice, items, keyReasons: ab.keyReasons, tradeoffs: ab.tradeoffs };
+          })
+          .filter((b): b is Bundle => b !== null);
+
+        if (result.length > 0) return result;
+      }
     } catch (err) {
-      console.error("[generateBundles] LLM summary failed, returning raw bundles:", err);
+      console.error("[generateBundles] AI selection failed, falling back to scoring:", err);
     }
   }
 
-  return bundles;
+  // Fallback: scoring-based selection (no OpenAI key or AI call failed)
+  return buildBundlesByScoring(filtered, answers);
 }

@@ -311,38 +311,77 @@ export const classifyIntentWithContext = async (input: {
   }
 };
 
-export const generateBundleSummary = async (answers: BundleAnswers, bundles: Bundle[]): Promise<Bundle[]> => {
-  if (!client) return bundles;
+export interface CatalogItemForAI {
+  id: string;
+  title: string;
+  price: string;
+  categories: string[];
+  description: string;
+}
 
-  const bundleSummaryData = bundles.map((b, i) => ({
-    index: i,
-    items: b.items.map((item) => ({ title: item.title, role: item.roleInBundle, price: item.price })),
-    totalPrice: b.totalPrice
-  }));
+interface AIBundleItem {
+  id: string;
+  roleInBundle: "ankur" | "lisatoode" | "aksessuaar";
+  whyChosen: string;
+}
 
-  const systemPrompt = `Sa oled IDA Stuudio sisekujundusnõustaja. Sinu ülesanne on genereerida mööblikomplektide lühikirjeldused eesti keeles.
-Tagasta AINULT JSON massiiv järgmises formaadis (${bundles.length} elementi):
+interface AIBundle {
+  title: string;
+  styleSummary: string;
+  keyReasons: string[];
+  tradeoffs: string[];
+  items: AIBundleItem[];
+}
+
+// AI picks the products itself from the catalog + user answers.
+// Returns Bundle[] with item IDs that the caller maps back to full ProductCards.
+export const generateBundlesWithAI = async (
+  catalog: CatalogItemForAI[],
+  answers: BundleAnswers
+): Promise<AIBundle[] | null> => {
+  if (!client) return null;
+
+  const systemPrompt = `Sa oled IDA Stuudio sisekujundusnõustaja, kes koostab personaalseid mööblikomplekte.
+
+Saad kliendi eelistused ja poe tootekataloogist filtreeritud toodete nimekirja.
+Sinu ülesanne: vali kataloogist sobivad tooted ja koosta 1–3 erinevat terviklikku mööblikomplekti.
+
+Reeglid:
+- Iga komplekt sisaldab 2–4 toodet: üks "ankur" (peamine toode), üks-kaks "lisatoode" ja soovi korral "aksessuaar"
+- Eelarve on kogu komplekti kohta — jaga see mõistlikult toodete vahel
+- Kui klient eelistab konkreetset materjali, vali seda materjali sisaldavad tooted
+- Kui on lapsed või lemmikloomad, väldi kangast/nahka; eelista kunstnahka, mikrofiiber või kergesti puhastatavaid materjale
+- Iga komplekt peab erinema teistest (erinev stiil, ankurtoode või värvitoon)
+- Kui kataloogis pole piisavalt sobivaid tooteid, tagasta vähem komplekte (aga vähemalt 1)
+- Iga toote whyChosen väli peab olema konkreetne eestikeelne põhjendus (miks just see toode sellele kliendile)
+
+Tagasta AINULT JSON massiiv, ilma selgitusteta:
 [
   {
-    "title": "lühike atraktiivne pealkiri (max 5 sõna)",
-    "styleSummary": "ühe-kahe lauseline kirjeldus komplekti esteetikast ja terviklikkusest",
+    "title": "Komplekti atraktiivne pealkiri (max 5 sõna, eesti keeles)",
+    "styleSummary": "1-2 lauseline kirjeldus komplekti esteetikast ja terviklikkusest",
     "keyReasons": ["põhjus1", "põhjus2", "põhjus3"],
-    "tradeoffs": ["kompromiss1 (kui on)"]
+    "tradeoffs": ["kompromiss (kui on, muidu tühi massiiv)"],
+    "items": [
+      { "id": "toote_id_kataloogist", "roleInBundle": "ankur", "whyChosen": "Konkreetne põhjus eesti keeles" },
+      { "id": "toote_id_kataloogist", "roleInBundle": "lisatoode", "whyChosen": "Konkreetne põhjus" }
+    ]
   }
-]
-Ära lisa selgitusi, ainult JSON.`;
+]`;
 
-  const userContent = `Kliendi vastused:
+  const userContent = `KLIENDI EELISTUSED:
 - Ruum: ${answers.room}
-- Ankurtoode: ${answers.anchorProduct}
-- Eelarve: ${answers.budgetRange}
+- Soovitud ankurtoode: ${answers.anchorProduct}
+- Eelarve: ${answers.budgetRange}${answers.budgetCustom ? ` (täpne: ${answers.budgetCustom}€)` : ""}
 - Stiil: ${answers.style}
 - Värvitoon: ${answers.colorTone}
-- Lapsed: ${answers.hasChildren ? "Jah" : "Ei"}, Lemmikloomad: ${answers.hasPets ? "Jah" : "Ei"}
-- Materjal: ${answers.materialPreference}
+- Lapsi majas: ${answers.hasChildren ? "Jah" : "Ei"}
+- Lemmikloomi: ${answers.hasPets ? "Jah" : "Ei"}
+- Materjalieelistus: ${answers.materialPreference}
+${answers.dimensionsKnown ? `- Ruumi mõõdud: ${answers.widthCm}cm x ${answers.lengthCm}cm` : ""}
 
-Komplektid:
-${JSON.stringify(bundleSummaryData, null, 2)}`;
+KATALOOG (${catalog.length} toodet):
+${JSON.stringify(catalog, null, 2)}`;
 
   try {
     const response = await client.responses.create({
@@ -354,29 +393,12 @@ ${JSON.stringify(bundleSummaryData, null, 2)}`;
     });
 
     const text = response.output_text?.trim();
-    if (!text) return bundles;
+    if (!text) return null;
     const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return bundles;
-    const parsed = JSON.parse(match[0]) as Array<{
-      title: string;
-      styleSummary: string;
-      keyReasons: string[];
-      tradeoffs: string[];
-    }>;
-
-    return bundles.map((bundle, i) => {
-      const ai = parsed[i];
-      if (!ai) return bundle;
-      return {
-        ...bundle,
-        title: ai.title ?? bundle.title,
-        styleSummary: ai.styleSummary ?? bundle.styleSummary,
-        keyReasons: ai.keyReasons ?? bundle.keyReasons,
-        tradeoffs: ai.tradeoffs ?? bundle.tradeoffs
-      };
-    });
+    if (!match) return null;
+    return JSON.parse(match[0]) as AIBundle[];
   } catch (error) {
-    console.error("[llm] Bundle summary generation failed:", error instanceof Error ? error.message : String(error));
-    return bundles;
+    console.error("[llm] generateBundlesWithAI failed:", error instanceof Error ? error.message : String(error));
+    return null;
   }
 };
