@@ -13,7 +13,7 @@ import { generateProductRecommendations, generateProductSearchQueries } from "./
 
 const CATALOG_CACHE_KEY = "woo_product_catalog";
 const CATALOG_TTL = 5 * 60_000;
-const MAX_CATALOG_PRODUCTS = 320;
+const MAX_CATALOG_PRODUCTS = 1200;
 const CATEGORY_TREE_CACHE_KEY = "woo_product_category_tree";
 const CATEGORY_TREE_TTL = 10 * 60_000;
 
@@ -407,6 +407,8 @@ interface CatalogProduct {
   title: string;
   handle: string;
   categories: string[];
+  categorySlugs: string[];
+  categoryIds: number[];
   description: string;
   image: string;
   price: number;
@@ -598,6 +600,8 @@ export const fetchProductCatalog = async (): Promise<CatalogProduct[]> => {
           title: product.name,
           handle: product.slug,
           categories: (product.categories ?? []).map((c) => c.name),
+          categorySlugs: (product.categories ?? []).map((c) => c.slug),
+          categoryIds: (product.categories ?? []).map((c) => c.id),
           description: stripHtml(product.short_description || product.description || "").slice(0, 360),
           image: product.images?.[0]?.src ?? product.images?.[0]?.thumbnail ?? "",
           price: current,

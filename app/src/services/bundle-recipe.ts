@@ -6,7 +6,7 @@ export const ROOM_CATEGORIES: Record<string, string[]> = {
   "Magamistuba": ["voodi", "madrats", "öökapp", "kummut", "magamistuba", "bedroom"],
   "Söögituba": ["söögilaud", "söögitool", "söögituba", "diningroom", "dining"],
   "Köök": ["köögimööbel", "kook", "köök", "kitchen"],
-  "Kontor": ["kirjutuslaud", "töölaud", "arvutilaud", "laud", "kontoritool", "riiul", "kontor", "office"],
+  "Kontor": ["kirjutuslaud", "kirjutuslauad", "töölaud", "töölauad", "arvutilaud", "arvutilauad", "kontoritool", "riiul", "kontor", "office"],
   "Lastetuba": ["lastemööbel", "lastetuba", "laste", "kids", "children"],
   "Esik": ["esik", "riidekapp", "nagel", "hall", "hallway"]
 };
@@ -34,8 +34,8 @@ export const BUNDLE_ROLES: Record<string, Array<{ role: "ankur" | "lisatoode" | 
     { role: "aksessuaar", keywords: ["lamp", "riiul"], required: false }
   ],
   "Kontor": [
-    { role: "ankur", keywords: ["kirjutuslaud", "töölaud", "arvutilaud", "laud"], required: true },
-    { role: "lisatoode", keywords: ["kontoritool", "tool"], required: true },
+    { role: "ankur", keywords: ["kirjutuslaud", "kirjutuslauad", "töölaud", "töölauad", "arvutilaud", "arvutilauad"], required: true },
+    { role: "lisatoode", keywords: ["kontoritool", "kontoritoolid", "office chair"], required: true },
     { role: "aksessuaar", keywords: ["riiul", "lamp", "sahtlikapp"], required: false }
   ],
   "Lastetuba": [
