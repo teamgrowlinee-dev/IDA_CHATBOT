@@ -770,13 +770,15 @@ const initializeRoom = async () => {
 };
 
 const attachEvents = () => {
-  addSkuBtn.addEventListener("click", () => addProductBySku(skuInputEl.value));
-  skuInputEl.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addProductBySku(skuInputEl.value);
-    }
-  });
+  if (addSkuBtn && skuInputEl) {
+    addSkuBtn.addEventListener("click", () => addProductBySku(skuInputEl.value));
+    skuInputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addProductBySku(skuInputEl.value);
+      }
+    });
+  }
   rotateLeftBtn.addEventListener("click", () => rotateSelected(-ROTATION_STEP_DEG));
   rotateRightBtn.addEventListener("click", () => rotateSelected(ROTATION_STEP_DEG));
   snapWallBtn.addEventListener("click", () => snapSelectedToWall());
@@ -803,8 +805,10 @@ const bootstrap = async () => {
     setChip("Valmis", "ok");
     const deepSku = query.get("sku")?.trim();
     if (deepSku) {
-      skuInputEl.value = deepSku;
+      if (skuInputEl) skuInputEl.value = deepSku;
       await addProductBySku(deepSku);
+    } else {
+      setWarning("Vali toode chatbotis ja vajuta 'Ava simulaatoris', et see ruumi lisada.", "warn");
     }
   } catch (error) {
     console.error("[simulator] init failed:", error);

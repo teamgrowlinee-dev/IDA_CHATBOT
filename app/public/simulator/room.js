@@ -94,6 +94,7 @@ const readFileAsDataUrl = (file) =>
   });
 
 const collectVisualRefs = async () => {
+  if (!filesInput) return [];
   const fileList = Array.from(filesInput.files ?? []).slice(0, MAX_VISUAL_FILES);
   if (!fileList.length) return [];
 

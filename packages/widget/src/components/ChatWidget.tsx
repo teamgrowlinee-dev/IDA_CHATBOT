@@ -139,28 +139,62 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
     [simulatorBaseOrigin]
   );
 
+  const ensureDefaultRoom = useCallback(async (): Promise<string | null> => {
+    if (simulatorRoomId) return simulatorRoomId;
+    try {
+      const response = await fetch(`${apiBase}/api/rooms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shape: "rect",
+          width_cm: 420,
+          length_cm: 560,
+          height_cm: 260,
+          openings: [],
+          obstacles: [],
+          visual_refs: []
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.roomId) {
+        throw new Error(typeof data?.error === "string" ? data.error : "Ruumi loomine ebaõnnestus");
+      }
+      const roomId = String(data.roomId);
+      setSimulatorRoomId(roomId);
+      return roomId;
+    } catch (error) {
+      console.error("[IDA] Default room creation failed:", error);
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "assistant", text: "Simulaatori jaoks automaatset tuba ei saanud luua. Ava palun 'Loo minu tuba' ja proovi uuesti." }
+      ]);
+      return null;
+    }
+  }, [apiBase, simulatorRoomId]);
+
   const openSimulator = useCallback(
-    (sku?: string) => {
-      if (!simulatorRoomId) {
+    async (sku?: string) => {
+      const roomId = await ensureDefaultRoom();
+      if (!roomId) {
         openRoomWizard(sku);
         return;
       }
       const url = new URL("/simulator", simulatorBaseOrigin);
-      url.searchParams.set("roomId", simulatorRoomId);
+      url.searchParams.set("roomId", roomId);
       if (sku) url.searchParams.set("sku", sku);
       window.open(url.toString(), "_blank", "noopener,noreferrer");
     },
-    [openRoomWizard, simulatorBaseOrigin, simulatorRoomId]
+    [ensureDefaultRoom, openRoomWizard, simulatorBaseOrigin]
   );
 
   const handleViewInSimulator = useCallback(
     (card: ProductCardType) => {
       const sku = String(card.handle || card.id || card.variantId || "").trim();
       if (!sku) {
-        openSimulator();
+        void openSimulator();
         return;
       }
-      openSimulator(sku);
+      void openSimulator(sku);
     },
     [openSimulator]
   );
@@ -689,7 +723,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           <div className="gl-quick-actions">
             <button onClick={() => setBundleFlowActive(true)}>🛋️ Koosta komplekt</button>
             <button onClick={() => openRoomWizard()}>🏠 Loo minu tuba</button>
-            <button onClick={() => openSimulator()}>{simulatorRoomId ? "🧭 Ava simulaator" : "🧭 Ava simulaator (loo tuba)"}</button>
+            <button onClick={() => void openSimulator()}>🧭 Ava simulaator</button>
           </div>
         )}
 

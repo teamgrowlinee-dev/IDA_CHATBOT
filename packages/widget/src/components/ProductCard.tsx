@@ -38,7 +38,7 @@ export const ProductCard: React.FC<Props> = ({ card, loading, onAdd, onViewInSim
             onClick={() => onViewInSimulator(card)}
             aria-label={`Vaata ${card.title} simulaatoris`}
           >
-            Vaata simulaatoris
+            Ava simulaatoris
           </button>
         </div>
       </div>
