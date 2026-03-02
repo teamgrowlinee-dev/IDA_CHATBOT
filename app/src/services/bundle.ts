@@ -258,6 +258,28 @@ interface SelectedElementSpec {
 const ACCESSORY_SPEC_KEYS = new Set<MenuElementKey>(["lamp", "rug", "decor", "mirror"]);
 
 const MAX_ALTERNATIVES_PER_ITEM = 4;
+const BEDROOM_BED_BLOCKED_SLUGS = new Set([
+  "diivanid",
+  "diivanvoodid",
+  "2-kohalised-diivanid",
+  "3-ja-4-kohalised-diivanid",
+  "lamamistoolid",
+  "aed-terrass"
+]);
+const BEDROOM_BED_BLOCKED_TERMS = ["diivanvoodi", "paevavoodi", "lamamistool", "sunbed", "daybed"] as const;
+const BEDROOM_BED_REQUIRED_TERMS = ["voodi", "voodipeats"] as const;
+
+const isUnsuitableBedroomBedProduct = (product: CatalogProductRaw): boolean => {
+  if (hasAnySlug(product, BEDROOM_BED_BLOCKED_SLUGS)) return true;
+  const searchable = buildSearchableText(product);
+  return BEDROOM_BED_BLOCKED_TERMS.some((term) => searchable.includes(term));
+};
+
+const isStrictBedroomBedProduct = (product: CatalogProductRaw): boolean => {
+  if (isUnsuitableBedroomBedProduct(product)) return false;
+  const normalizedTitle = normalizeForMatch(product.title ?? "");
+  return BEDROOM_BED_REQUIRED_TERMS.some((term) => normalizedTitle.includes(term));
+};
 
 const ensureAnchorSpecInSelection = (
   specs: SelectedElementSpec[],
@@ -300,11 +322,14 @@ const rankCandidatesForSpec = (
 ): ProductCard[] => {
   const specSlugs = new Set(spec.slugs);
   const specKeywords = spec.keywords.map((keyword) => normalizeForMatch(keyword));
-  const bedPenaltySlugs = new Set(["diivanid", "diivanvoodid", "2-kohalised-diivanid", "3-ja-4-kohalised-diivanid", "lamamistoolid", "aed-terrass"]);
   const bedPreferredSlugs = new Set(["voodid-voodipeatsid"]);
 
   return catalog
     .map((product) => {
+      if (specKey === "bed" && answers.room === "Magamistuba" && !isStrictBedroomBedProduct(product)) {
+        return null;
+      }
+
       const searchable = buildSearchableText(product);
       const slugMatch = specSlugs.size > 0 && hasAnySlug(product, specSlugs);
       const keywordMatch = specKeywords.some((keyword) => searchable.includes(keyword));
@@ -319,7 +344,6 @@ const rankCandidatesForSpec = (
       // Bedroom anchor should prefer real bed products over sofa/outdoor variants.
       if (specKey === "bed") {
         if (hasAnySlug(product, bedPreferredSlugs)) score += 20;
-        if (hasAnySlug(product, bedPenaltySlugs)) score -= 12;
         if (searchable.includes("diivanvoodi")) score -= 7;
       }
 
@@ -363,6 +387,10 @@ function rankAlternativesForItem(
     .filter((candidate) => candidate.id !== item.id)
     .filter((candidate) => !bundleItemIds.has(candidate.id))
     .map((candidate) => {
+      if (resolvedSpecKey === "bed" && answers.room === "Magamistuba" && !isStrictBedroomBedProduct(candidate)) {
+        return null;
+      }
+
       const searchable = buildSearchableText(candidate);
       const candidateSpecKey = inferSpecKeyFromRawProduct(candidate);
       const isAccessoryCandidate = candidateSpecKey !== null && ACCESSORY_SPEC_KEYS.has(candidateSpecKey);
@@ -486,13 +514,13 @@ function buildStrictBundleFromSelections(
 
   if (!items.length) return null;
 
-  if (!anchorAssigned) {
+  if (!anchorAssigned && anchorSpecKey === null) {
     const fallbackAnchorIndex = items.findIndex((item) => item.roleInBundle === "lisatoode");
     const anchorIndex = fallbackAnchorIndex >= 0 ? fallbackAnchorIndex : 0;
     items[anchorIndex] = {
       ...items[anchorIndex],
       roleInBundle: "ankur",
-      whyChosen: `Valitud ankurtootest (${answers.anchorProduct}) ei leitud täpset vastet; kasutatud lähimat sobivat põhitoodet.`
+      whyChosen: "Automaatselt valitud põhitoode."
     };
   }
 
@@ -507,6 +535,9 @@ function buildStrictBundleFromSelections(
   const tradeoffs: string[] = [];
   if (missingElements.length > 0) {
     tradeoffs.push(`Kataloogis ei leidunud valitud elementidele sobivaid tooteid: ${missingElements.join(", ")}.`);
+  }
+  if (!anchorAssigned && anchorSpecKey !== null) {
+    tradeoffs.push(`Valitud ankurtootele "${answers.anchorProduct}" ei leitud sobivat toodet.`);
   }
 
   return {
