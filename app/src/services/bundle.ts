@@ -33,15 +33,58 @@ function toProductCard(p: CatalogProductRaw): ProductCard {
 }
 
 // Pre-filter by room keywords so AI receives a relevant, smaller catalog
-function filterByRoom(catalog: CatalogProductRaw[], room: string): CatalogProductRaw[] {
-  const keywords = ROOM_CATEGORIES[room] ?? [];
-  if (!keywords.length) return catalog.slice(0, 60);
+function extractElementKeywords(selectedElements: string[]): string[] {
+  const synonymMap: Record<string, string[]> = {
+    kirjutuslaud: ["kirjutuslaud", "töölaud", "arvutilaud", "laud", "desk"],
+    too: ["töölaud", "kirjutuslaud", "laud", "desk"],
+    laud: ["laud", "töölaud", "kirjutuslaud", "arvutilaud", "desk"],
+    kontoritool: ["kontoritool", "tool", "office chair"],
+    riiulikapp: ["riiul", "riiulikapp", "kapp", "shelf"],
+    riiul: ["riiul", "shelf"],
+    lamp: ["lamp", "valgusti", "lighting"]
+  };
+
+  const raw = selectedElements
+    .flatMap((element) =>
+      element
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s/+-]/gu, " ")
+        .split(/[\/,+-]/g)
+        .map((part) => part.trim())
+    )
+    .flatMap((part) => part.split(/\s+/g))
+    .filter((token) => token.length >= 3);
+
+  const expanded = raw.flatMap((token) => synonymMap[token] ?? [token]);
+  return [...new Set(expanded)];
+}
+
+function filterByRoom(catalog: CatalogProductRaw[], room: string, selectedElements: string[] = []): CatalogProductRaw[] {
+  const roomKeywords = ROOM_CATEGORIES[room] ?? [];
+  const elementKeywords = extractElementKeywords(selectedElements);
+  const keywords = [...new Set([...roomKeywords, ...elementKeywords])];
+
+  if (!keywords.length) return catalog.slice(0, 80);
+
   const filtered = catalog.filter((p) => {
     const allText = [p.title, ...p.categories, p.description].join(" ").toLowerCase();
     return keywords.some((kw) => allText.includes(kw));
   });
-  // Broaden if room filter yields too few candidates
-  return filtered.length >= 5 ? filtered.slice(0, 60) : catalog.slice(0, 60);
+
+  if (filtered.length < 5) return catalog.slice(0, 80);
+
+  // Prioritize products that match the user-selected elements (e.g. writing desk in office room).
+  if (elementKeywords.length > 0) {
+    const strong = filtered.filter((p) => {
+      const allText = [p.title, ...p.categories, p.description].join(" ").toLowerCase();
+      return elementKeywords.some((kw) => allText.includes(kw));
+    });
+    const strongIds = new Set(strong.map((p) => p.id));
+    const rest = filtered.filter((p) => !strongIds.has(p.id));
+    return [...strong, ...rest].slice(0, 80);
+  }
+
+  return filtered.slice(0, 80);
 }
 
 // Fallback: scoring-based bundle building (used when OpenAI is unavailable)
@@ -113,7 +156,7 @@ function buildBundlesByScoring(filtered: CatalogProductRaw[], answers: BundleAns
 
 export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]> {
   const rawCatalog = (await fetchProductCatalog()) as unknown as CatalogProductRaw[];
-  const filtered = filterByRoom(rawCatalog, answers.room);
+  const filtered = filterByRoom(rawCatalog, answers.room, answers.selectedElements ?? []);
 
   // Build a lookup map: id → full raw product
   const catalogById = new Map<string, CatalogProductRaw>();
