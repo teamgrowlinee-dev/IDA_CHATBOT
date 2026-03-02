@@ -240,6 +240,152 @@ const inferSpecKeyFromText = (rawText: string): MenuElementKey | null => {
   return null;
 };
 
+interface SelectedElementSpec {
+  element: string;
+  specKey: MenuElementKey;
+  spec: { slugs: string[]; keywords: string[] };
+}
+
+const ACCESSORY_SPEC_KEYS = new Set<MenuElementKey>(["lamp", "rug", "decor", "mirror"]);
+
+const resolveSelectedElementSpecs = (answers: BundleAnswers): SelectedElementSpec[] => {
+  const roomSpec = ROOM_MENU_SPEC[answers.room];
+  if (!roomSpec) return [];
+
+  const selected = (answers.selectedElements ?? []).length
+    ? answers.selectedElements
+    : Object.keys(roomSpec.elementToSpec);
+
+  return selected
+    .map((element) => {
+      const specKey = roomSpec.elementToSpec[element] ?? inferSpecKeyFromText(element);
+      if (!specKey) return null;
+      const spec = ELEMENT_SPEC[specKey];
+      if (!spec) return null;
+      return { element, specKey, spec };
+    })
+    .filter((value): value is SelectedElementSpec => value !== null);
+};
+
+const rankCandidatesForSpec = (
+  catalog: CatalogProductRaw[],
+  spec: { slugs: string[]; keywords: string[] },
+  answers: BundleAnswers
+): ProductCard[] => {
+  const specSlugs = new Set(spec.slugs);
+  const specKeywords = spec.keywords.map((keyword) => normalizeForMatch(keyword));
+
+  return catalog
+    .map((product) => {
+      const searchable = buildSearchableText(product);
+      const slugMatch = specSlugs.size > 0 && hasAnySlug(product, specSlugs);
+      const keywordMatch = specKeywords.some((keyword) => searchable.includes(keyword));
+      if (!slugMatch && !keywordMatch) return null;
+
+      const card = toProductCard(product);
+      let score = scoreCatalogProduct(card, answers);
+      if (slugMatch) score += 28;
+      if (keywordMatch) score += 10;
+      if (normalizeForMatch(card.title).includes("defektiga")) score -= 4;
+
+      return { card, score };
+    })
+    .filter((value): value is { card: ProductCard; score: number } => value !== null)
+    .sort((a, b) => b.score - a.score)
+    .map((value) => value.card);
+};
+
+const bundleSignature = (bundle: Bundle): string =>
+  bundle.items
+    .map((item) => item.id)
+    .sort((a, b) => a.localeCompare(b))
+    .join("|");
+
+function buildStrictBundleFromSelections(
+  catalog: CatalogProductRaw[],
+  answers: BundleAnswers
+): Bundle | null {
+  const selectedSpecs = resolveSelectedElementSpecs(answers);
+  if (!selectedSpecs.length) return null;
+
+  const anchorSpecKey = inferSpecKeyFromText(answers.anchorProduct) ?? selectedSpecs[0]?.specKey ?? null;
+  const normalizedAnchor = normalizeForMatch(answers.anchorProduct ?? "");
+
+  const usedIds = new Set<string>();
+  const items: BundleItem[] = [];
+  const missingElements: string[] = [];
+  let anchorAssigned = false;
+
+  for (const selected of selectedSpecs) {
+    const candidates = rankCandidatesForSpec(catalog, selected.spec, answers);
+    const picked = candidates.find((candidate) => !usedIds.has(candidate.id));
+
+    if (!picked) {
+      missingElements.push(selected.element);
+      continue;
+    }
+
+    usedIds.add(picked.id);
+
+    const normalizedElement = normalizeForMatch(selected.element);
+    const isAnchorElement =
+      !anchorAssigned &&
+      ((anchorSpecKey !== null && selected.specKey === anchorSpecKey) ||
+        (normalizedAnchor.length > 0 && normalizedElement.includes(normalizedAnchor)));
+
+    let role: BundleItem["roleInBundle"] = ACCESSORY_SPEC_KEYS.has(selected.specKey) ? "aksessuaar" : "lisatoode";
+    let whyChosen = `Valitud elemendi "${selected.element}" jaoks sobiv toode.`;
+
+    if (isAnchorElement) {
+      role = "ankur";
+      whyChosen = `Valitud ankurtoote "${answers.anchorProduct}" põhjal valitud põhitoode.`;
+      anchorAssigned = true;
+    } else if (role === "aksessuaar") {
+      whyChosen = `Viimistleb valitud elementi "${selected.element}".`;
+    }
+
+    items.push({
+      ...picked,
+      roleInBundle: role,
+      whyChosen
+    });
+  }
+
+  if (!items.length) return null;
+
+  if (!anchorAssigned) {
+    const fallbackAnchorIndex = items.findIndex((item) => item.roleInBundle === "lisatoode");
+    const anchorIndex = fallbackAnchorIndex >= 0 ? fallbackAnchorIndex : 0;
+    items[anchorIndex] = {
+      ...items[anchorIndex],
+      roleInBundle: "ankur",
+      whyChosen: `Valitud ankurtootest (${answers.anchorProduct}) ei leitud täpset vastet; kasutatud lähimat sobivat põhitoodet.`
+    };
+  }
+
+  const totalPrice = items.reduce((sum, item) => sum + parseFloat(item.price?.replace(/[^0-9.]/g, "") ?? "0"), 0);
+
+  const keyReasons = [
+    `Sisaldab ${items.length}/${selectedSpecs.length} valitud elementi`,
+    `Ankur: ${answers.anchorProduct || "automaatne"}`,
+    `Sobib ${answers.room.toLowerCase()}`
+  ];
+
+  const tradeoffs: string[] = [];
+  if (missingElements.length > 0) {
+    tradeoffs.push(`Kataloogis ei leidunud valitud elementidele sobivaid tooteid: ${missingElements.join(", ")}.`);
+  }
+
+  return {
+    title: `${answers.room} valikukomplekt`,
+    styleSummary: `${answers.colorTone.toLowerCase()} toonid. Koostatud sinu valitud elementide järgi.`,
+    totalPrice,
+    items,
+    keyReasons,
+    tradeoffs
+  };
+}
+
 function filterByRoom(
   catalog: CatalogProductRaw[],
   room: string,
@@ -411,6 +557,7 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
     answers.selectedElements ?? [],
     answers.anchorProduct ?? ""
   );
+  const strictBundle = buildStrictBundleFromSelections(filtered, answers);
 
   // Build a lookup map: id → full raw product
   const catalogById = new Map<string, CatalogProductRaw>();
@@ -447,7 +594,12 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
           })
           .filter((b): b is Bundle => b !== null);
 
-        if (result.length > 0) return result;
+        if (result.length > 0) {
+          if (!strictBundle) return result;
+          const strictSig = bundleSignature(strictBundle);
+          const merged = [strictBundle, ...result.filter((bundle) => bundleSignature(bundle) !== strictSig)];
+          return merged.slice(0, 3);
+        }
       }
     } catch (err) {
       console.error("[generateBundles] AI selection failed, falling back to scoring:", err);
@@ -455,5 +607,9 @@ export async function generateBundles(answers: BundleAnswers): Promise<Bundle[]>
   }
 
   // Fallback: scoring-based selection (no OpenAI key or AI call failed)
-  return buildBundlesByScoring(filtered, answers);
+  const scored = buildBundlesByScoring(filtered, answers);
+  if (strictBundle) {
+    return [strictBundle];
+  }
+  return scored;
 }
