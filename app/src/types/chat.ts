@@ -33,3 +33,37 @@ export interface ChatResponse {
   cartId?: string;
   productSummary?: string;
 }
+
+export interface BundleAnswers {
+  room: string;
+  anchorProduct: string;
+  budgetRange: string;
+  budgetCustom?: number;
+  style: string;
+  colorTone: string;
+  hasChildren: boolean;
+  hasPets: boolean;
+  materialPreference: string;
+  dimensionsKnown: boolean;
+  widthCm?: number;
+  lengthCm?: number;
+}
+
+export interface BundleItem extends ProductCard {
+  roleInBundle: "ankur" | "lisatoode" | "aksessuaar";
+  whyChosen: string;
+}
+
+export interface Bundle {
+  title: string;
+  styleSummary: string;
+  totalPrice: number;
+  items: BundleItem[];
+  keyReasons: string[];
+  tradeoffs: string[];
+}
+
+export interface BundleResponse {
+  bundles: Bundle[];
+  message: string;
+}

@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { env } from "../config/env.js";
 import { buildKnowledgeBlock, commerceConfig } from "../config/policies.js";
-import type { ChatIntent } from "../types/chat.js";
+import type { Bundle, BundleAnswers, ChatIntent } from "../types/chat.js";
 
 const client = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
 console.info(
@@ -308,5 +308,75 @@ export const classifyIntentWithContext = async (input: {
       error instanceof Error ? error.message : String(error)
     );
     return null;
+  }
+};
+
+export const generateBundleSummary = async (answers: BundleAnswers, bundles: Bundle[]): Promise<Bundle[]> => {
+  if (!client) return bundles;
+
+  const bundleSummaryData = bundles.map((b, i) => ({
+    index: i,
+    items: b.items.map((item) => ({ title: item.title, role: item.roleInBundle, price: item.price })),
+    totalPrice: b.totalPrice
+  }));
+
+  const systemPrompt = `Sa oled IDA Stuudio sisekujundusnõustaja. Sinu ülesanne on genereerida mööblikomplektide lühikirjeldused eesti keeles.
+Tagasta AINULT JSON massiiv järgmises formaadis (${bundles.length} elementi):
+[
+  {
+    "title": "lühike atraktiivne pealkiri (max 5 sõna)",
+    "styleSummary": "ühe-kahe lauseline kirjeldus komplekti esteetikast ja terviklikkusest",
+    "keyReasons": ["põhjus1", "põhjus2", "põhjus3"],
+    "tradeoffs": ["kompromiss1 (kui on)"]
+  }
+]
+Ära lisa selgitusi, ainult JSON.`;
+
+  const userContent = `Kliendi vastused:
+- Ruum: ${answers.room}
+- Ankurtoode: ${answers.anchorProduct}
+- Eelarve: ${answers.budgetRange}
+- Stiil: ${answers.style}
+- Värvitoon: ${answers.colorTone}
+- Lapsed: ${answers.hasChildren ? "Jah" : "Ei"}, Lemmikloomad: ${answers.hasPets ? "Jah" : "Ei"}
+- Materjal: ${answers.materialPreference}
+
+Komplektid:
+${JSON.stringify(bundleSummaryData, null, 2)}`;
+
+  try {
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent }
+      ]
+    });
+
+    const text = response.output_text?.trim();
+    if (!text) return bundles;
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) return bundles;
+    const parsed = JSON.parse(match[0]) as Array<{
+      title: string;
+      styleSummary: string;
+      keyReasons: string[];
+      tradeoffs: string[];
+    }>;
+
+    return bundles.map((bundle, i) => {
+      const ai = parsed[i];
+      if (!ai) return bundle;
+      return {
+        ...bundle,
+        title: ai.title ?? bundle.title,
+        styleSummary: ai.styleSummary ?? bundle.styleSummary,
+        keyReasons: ai.keyReasons ?? bundle.keyReasons,
+        tradeoffs: ai.tradeoffs ?? bundle.tradeoffs
+      };
+    });
+  } catch (error) {
+    console.error("[llm] Bundle summary generation failed:", error instanceof Error ? error.message : String(error));
+    return bundles;
   }
 };

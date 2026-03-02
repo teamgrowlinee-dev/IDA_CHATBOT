@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatResponse, CommerceActions, ProductCard as ProductCardType } from "../types";
+import type { Bundle, BundleAnswers, BundleItem, ChatMessage, ChatResponse, CommerceActions, ProductCard as ProductCardType } from "../types";
 import { ProductCard } from "./ProductCard";
+import BundleFlow from "./BundleFlow";
+import BundleCard from "./BundleCard";
 
 interface Props {
   apiBase: string;
@@ -28,6 +30,10 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
 
   const [welcomeTyping, setWelcomeTyping] = useState(false);
   const [welcomeText, setWelcomeText] = useState("");
+
+  const [bundleFlowActive, setBundleFlowActive] = useState(false);
+  const [bundleLoading, setBundleLoading] = useState(false);
+  const [bundleResults, setBundleResults] = useState<Bundle[] | null>(null);
 
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -212,6 +218,51 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
     [storeOrigin]
   );
 
+  const handleBundleComplete = useCallback(
+    async (answers: BundleAnswers) => {
+      setBundleLoading(true);
+      try {
+        const res = await fetch(`${apiBase}/api/bundle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(answers)
+        });
+        const data = await res.json();
+        setBundleResults(data.bundles ?? []);
+      } catch (err) {
+        console.error("[IDA] Bundle error:", err);
+        setBundleResults([]);
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "assistant", text: "Komplektide genereerimine ebaõnnestus. Palun proovi uuesti." }
+        ]);
+        setBundleFlowActive(false);
+      } finally {
+        setBundleLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
+  const handleAddAllToCart = useCallback(
+    async (items: BundleItem[]) => {
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "assistant", text: `Lisan ${items.length} toodet ostukorvi...` }
+      ]);
+      for (const item of items) {
+        await handleAddToCart(item as ProductCardType);
+      }
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "assistant", text: "Komplekt lisatud ostukorvi!" }
+      ]);
+      setBundleResults(null);
+      setBundleFlowActive(false);
+    },
+    [handleAddToCart]
+  );
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -320,41 +371,94 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           </div>
         </div>
 
-        <div className="gl-messages" ref={messagesRef}>
-          {welcomeTyping && messages.length === 0 && (
-            <div className="gl-msg assistant">
-              <p>
-                {welcomeText}
-                <span className="gl-bubble-cursor" />
-              </p>
-            </div>
-          )}
+        {bundleFlowActive && !bundleResults && !bundleLoading && (
+          <BundleFlow
+            onComplete={handleBundleComplete}
+            onCancel={() => setBundleFlowActive(false)}
+          />
+        )}
 
-          {messages.map((msg) => (
-            <div key={msg.id} className={`gl-msg ${msg.role}`}>
-              <p>{msg.text}</p>
-              {msg.cards?.map((card) => (
-                <ProductCard
-                  key={`${card.variantId}-${card.id}`}
-                  card={card}
-                  loading={addingVariant === card.variantId}
-                  onAdd={handleAddToCart}
-                />
-              ))}
-              {msg.productSummary && <div className="gl-product-summary">{msg.productSummary}</div>}
-            </div>
-          ))}
-
-          {loading && (
+        {bundleLoading && (
+          <div className="gl-messages">
             <div className="gl-msg assistant">
+              <p>Genereerin sinu personaalseid komplekte...</p>
               <div className="gl-typing">
                 <div className="gl-typing-dot" />
                 <div className="gl-typing-dot" />
                 <div className="gl-typing-dot" />
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {!bundleFlowActive && !bundleLoading && (
+          <div className="gl-messages" ref={messagesRef}>
+            {welcomeTyping && messages.length === 0 && (
+              <div className="gl-msg assistant">
+                <p>
+                  {welcomeText}
+                  <span className="gl-bubble-cursor" />
+                </p>
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <div key={msg.id} className={`gl-msg ${msg.role}`}>
+                <p>{msg.text}</p>
+                {msg.cards?.map((card) => (
+                  <ProductCard
+                    key={`${card.variantId}-${card.id}`}
+                    card={card}
+                    loading={addingVariant === card.variantId}
+                    onAdd={handleAddToCart}
+                  />
+                ))}
+                {msg.productSummary && <div className="gl-product-summary">{msg.productSummary}</div>}
+              </div>
+            ))}
+
+            {bundleResults && bundleResults.length > 0 && (
+              <div className="gl-bundle-results">
+                <div className="gl-msg assistant"><p>Siin on sinu personaalsed komplektid:</p></div>
+                {bundleResults.map((bundle, i) => (
+                  <BundleCard
+                    key={i}
+                    bundle={bundle}
+                    onAddAll={handleAddAllToCart}
+                  />
+                ))}
+                <button
+                  className="gl-bundle-back"
+                  onClick={() => { setBundleResults(null); setBundleFlowActive(false); }}
+                >
+                  ← Tagasi chatti
+                </button>
+              </div>
+            )}
+
+            {bundleResults && bundleResults.length === 0 && (
+              <div className="gl-msg assistant">
+                <p>Kahjuks ei leidnud sobivaid tooteid antud kriteeriumitele. Proovi muuta eelarvet või stiilieelistust.</p>
+                <button
+                  className="gl-bundle-back"
+                  onClick={() => { setBundleResults(null); setBundleFlowActive(false); }}
+                >
+                  ← Proovi uuesti
+                </button>
+              </div>
+            )}
+
+            {loading && (
+              <div className="gl-msg assistant">
+                <div className="gl-typing">
+                  <div className="gl-typing-dot" />
+                  <div className="gl-typing-dot" />
+                  <div className="gl-typing-dot" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {actions.freeShippingGap && actions.freeShippingGap > 0 ? (
           <div className="gl-chips">
@@ -368,7 +472,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           </div>
         ) : null}
 
-        {suggestions.length > 0 && !welcomeTyping && (
+        {suggestions.length > 0 && !welcomeTyping && !bundleFlowActive && !bundleResults && (
           <div className="gl-chips">
             {suggestions.map((chip) => (
               <button key={chip} onClick={() => sendMessage(chip)}>
@@ -378,21 +482,30 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           </div>
         )}
 
-        <div className="gl-footer">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={"Küsi toote kohta või küsi poe tingimuste kohta"}
-            disabled={loading || welcomeTyping}
-            rows={1}
-            aria-label="Vestluse sisestus"
-          />
-          <button onClick={() => sendMessage(input)} disabled={loading || welcomeTyping || !input.trim()}>
-            {"Saada"}
-          </button>
-        </div>
+        {!bundleFlowActive && !bundleResults && !welcomeTyping && messages.length > 0 && (
+          <div className="gl-quick-actions">
+            <button onClick={() => setBundleFlowActive(true)}>🛋️ Koosta komplekt</button>
+            <button disabled title="Tulemas peagi">📐 Ruumisobivus</button>
+          </div>
+        )}
+
+        {!bundleFlowActive && !bundleLoading && (
+          <div className="gl-footer">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={"Küsi toote kohta või küsi poe tingimuste kohta"}
+              disabled={loading || welcomeTyping}
+              rows={1}
+              aria-label="Vestluse sisestus"
+            />
+            <button onClick={() => sendMessage(input)} disabled={loading || welcomeTyping || !input.trim()}>
+              {"Saada"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { env } from "./config/env.js";
 import chatRoutes from "./routes/chat.js";
 import storefrontRoutes from "./routes/storefront.js";
+import bundleRoutes from "./routes/bundle.js";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -19,8 +20,10 @@ app.get("/health", (_req, res) => {
 
 app.use("/api", chatRoutes);
 app.use("/api", storefrontRoutes);
+app.use("/api", bundleRoutes);
 app.use("/proxy/api", chatRoutes);
 app.use("/proxy/api", storefrontRoutes);
+app.use("/proxy/api", bundleRoutes);
 
 const widgetDist = path.resolve(__dirname, "../../packages/widget/dist");
 app.use("/widget", express.static(widgetDist, { maxAge: "1h" }));
