@@ -346,14 +346,14 @@ export const generateBundlesWithAI = async (
 Saad kliendi eelistused ja poe tootekataloogist filtreeritud toodete nimekirja.
 Sinu ülesanne: vali kataloogist sobivad tooted ja koosta 1–3 erinevat terviklikku mööblikomplekti.
 
-PEAMINE REEGEL: Lisa komplekti NIIPALJU tooteid kui võimalik, täites eelarve maksimaalselt ära.
-- Iga komplekt peab sisaldama VÄHEMALT 4–5 toodet (rohkem on parem)
-- Lisa ankurtoode + lisatooted + dekoratiivesemed + valgustus + tekstiilid jne — kõik mis ruumi lõpetab
-- Eelarve on kogu komplekti kohta — kasuta eelarvet täismahus, ära jäta raha "lauale"
-- Rollide jaotus: 1 "ankur" (peamine mööbel), 2–3 "lisatoode" (täiendav mööbel/valgustus), 1–3 "aksessuaar" (tekstiilid/kunst/dekor)
+REEGLID:
+- Iga komplekt peab katma ruumi ERINEVAD elemendid: nt elutuppa sobib diivan + laud + lamp + tekstiil + seinakaunistus
+- Ära lisa samast kategooriast mitut toodet (nt kaks lampi, kaks diivani, kaks tooli) — iga toode täidab unikaalse rolli
+- Rollide jaotus: 1 "ankur" (peamine mööbel), 1–3 "lisatoode" (täiendav mööbel eri kategooriast), 1–2 "aksessuaar" (valgustus/tekstiil/kunst/dekor)
+- Eelarve on orienteeriv — lisa ainult tooted mis ruumi tegelikult lõpetavad, ära sunni eelarvet täis
 - Kui klient eelistab konkreetset materjali, eelista seda materjali toodetes
-- Kui on lapsed või lemmikloomad, väldi kangast/nahka; eelista kunstnahka, mikrofiiber või kergesti puhastatavaid materjale
-- Iga komplekt peab erinema teistest (erinev fookus, stiil või ankurtoode)
+- Kui on lapsed või lemmikloomad, väldi kangast/nahka; eelista kunstnahka, mikrofiiber
+- Iga komplekt peab erinema teistest (erinev ankurtoode, fookus või stiil)
 - Kui kataloogis pole piisavalt sobivaid tooteid, tagasta vähem komplekte (aga vähemalt 1)
 - Iga toote whyChosen väli: konkreetne eestikeelne põhjendus miks just see toode sellele kliendile sobib
 
@@ -366,7 +366,6 @@ Tagasta AINULT JSON massiiv, ilma selgitusteta:
     "tradeoffs": ["kompromiss (kui on, muidu tühi massiiv)"],
     "items": [
       { "id": "toote_id_kataloogist", "roleInBundle": "ankur", "whyChosen": "Konkreetne põhjus eesti keeles" },
-      { "id": "toote_id_kataloogist", "roleInBundle": "lisatoode", "whyChosen": "Konkreetne põhjus" },
       { "id": "toote_id_kataloogist", "roleInBundle": "lisatoode", "whyChosen": "Konkreetne põhjus" },
       { "id": "toote_id_kataloogist", "roleInBundle": "aksessuaar", "whyChosen": "Viimistleb ruumi" }
     ]
