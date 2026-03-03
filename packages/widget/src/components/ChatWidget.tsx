@@ -40,6 +40,68 @@ interface LocalTestCartLine {
   image?: string;
 }
 
+const toNumericProductId = (value?: string): number | null => {
+  const raw = String(value ?? "").trim();
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+};
+
+const normalizeSlug = (value: string): string =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
+
+const extractSlugFromPermalink = (permalink?: string): string | null => {
+  if (!permalink) return null;
+  try {
+    const url = new URL(permalink, window.location.origin);
+    const parts = url.pathname.split("/").map((part) => part.trim()).filter(Boolean);
+    return parts.length > 0 ? normalizeSlug(parts[parts.length - 1]) : null;
+  } catch {
+    return null;
+  }
+};
+
+const resolveLocalWooProductId = async (card: ProductCardType): Promise<number | null> => {
+  const slugCandidate = normalizeSlug(card.handle || extractSlugFromPermalink(card.permalink) || "");
+  if (!slugCandidate) return null;
+
+  try {
+    const response = await fetch(`/wp-json/wc/store/v1/products?slug=${encodeURIComponent(slugCandidate)}&per_page=1`, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as Array<{ id?: number }>;
+    const resolved = payload?.[0]?.id;
+    return Number.isFinite(resolved) && Number(resolved) > 0 ? Number(resolved) : null;
+  } catch {
+    return null;
+  }
+};
+
+const addWooProductToCurrentSiteCart = async (productId: number): Promise<boolean> => {
+  try {
+    const body = new URLSearchParams();
+    body.set("product_id", String(productId));
+    body.set("quantity", "1");
+    const response = await fetch("/?wc-ajax=add_to_cart", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        Accept: "application/json"
+      },
+      body: body.toString()
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
 const readLocalTestCart = (): LocalTestCartLine[] => {
   try {
     const raw = localStorage.getItem(LOCAL_TEST_CART_KEY);
@@ -322,6 +384,25 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
       setAddingVariant(card.variantId);
 
       if (isLocalhostRuntime()) {
+        let localProductId = toNumericProductId(card.variantId) ?? toNumericProductId(card.id);
+        if (!localProductId) {
+          localProductId = await resolveLocalWooProductId(card);
+        }
+
+        if (localProductId && (await addWooProductToCurrentSiteCart(localProductId))) {
+          const localStoreCartUrl = `${window.location.origin}/ostukorv/`;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              role: "assistant",
+              text: `${card.title} lisatud kohaliku poe ostukorvi! Ava: ${localStoreCartUrl}`
+            }
+          ]);
+          setAddingVariant(null);
+          return;
+        }
+
         addItemsToLocalTestCart([card]);
         const localCartUrl = `${window.location.origin}/local-cart`;
         setMessages((prev) => [
@@ -329,7 +410,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           {
             id: nextId(),
             role: "assistant",
-            text: `${card.title} lisatud localhost test-ostukorvi. Ava: ${localCartUrl}`
+            text: `${card.title} ei lisandunud kohaliku poe ostukorvi automaatselt. Lisasin test-ostukorvi: ${localCartUrl}`
           }
         ]);
         setAddingVariant(null);
@@ -345,9 +426,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
       })();
 
       const toNumericId = (value?: string) => {
-        const raw = String(value ?? "").trim();
-        const numeric = Number(raw);
-        return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+        return toNumericProductId(value);
       };
 
       const productId = toNumericId(card.variantId) ?? toNumericId(card.id);
@@ -510,14 +589,58 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
   const handleAddAllToCart = useCallback(
     async (items: BundleItem[]) => {
       if (isLocalhostRuntime()) {
-        addItemsToLocalTestCart(items);
-        const localCartUrl = `${window.location.origin}/local-cart`;
+        let added = 0;
+        const failed: BundleItem[] = [];
+
+        for (const item of items) {
+          let localProductId = toNumericProductId(item.variantId) ?? toNumericProductId(item.id);
+          if (!localProductId) {
+            localProductId = await resolveLocalWooProductId(item);
+          }
+          if (localProductId && (await addWooProductToCurrentSiteCart(localProductId))) {
+            added += 1;
+            continue;
+          }
+          failed.push(item);
+        }
+
         setBundleResults(null);
         setBundleFlowActive(false);
-        setMessages((prev) => [
-          ...prev,
-          { id: nextId(), role: "assistant", text: `Lisatud ${items.length} toodet localhost test-ostukorvi. Ava: ${localCartUrl}` }
-        ]);
+
+        if (added === items.length) {
+          const localStoreCartUrl = `${window.location.origin}/ostukorv/`;
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: "assistant", text: `Kõik ${added} toodet lisati kohaliku poe ostukorvi. Ava: ${localStoreCartUrl}` }
+          ]);
+          return;
+        }
+
+        if (failed.length > 0) {
+          addItemsToLocalTestCart(failed);
+          const localCartUrl = `${window.location.origin}/local-cart`;
+          if (added > 0) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: nextId(),
+                role: "assistant",
+                text: `${added} toodet lisati kohaliku poe ostukorvi. ${failed.length} toodet lisasin test-ostukorvi: ${localCartUrl}`
+              }
+            ]);
+            return;
+          }
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              role: "assistant",
+              text: `Kohalikku ostukorvi ei õnnestunud automaatselt lisada. Lisasin test-ostukorvi: ${localCartUrl}`
+            }
+          ]);
+          return;
+        }
+
         return;
       }
 
