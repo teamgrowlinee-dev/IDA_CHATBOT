@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ida-chatbot
+    env: node
+    buildCommand: npm install && npm --workspace app run build
+    startCommand: node app/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8788

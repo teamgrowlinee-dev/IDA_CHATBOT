@@ -10,4 +10,5 @@ yarn-error.log*
 
 # Build outputs
 app/dist/
-packages/widget/dist/
+# widget dist is committed so Render doesn't need vite in build step
+# packages/widget/dist/
