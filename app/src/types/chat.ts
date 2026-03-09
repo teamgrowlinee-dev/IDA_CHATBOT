@@ -53,6 +53,9 @@ export interface BundleAnswers {
   dimensionsKnown: boolean;
   widthCm?: number;
   lengthCm?: number;
+  heightCm?: number;
+  roomAreaM2?: number;
+  roomVolumeM3?: number;
   // Legacy scoring fallback fields (optional)
   style?: string;
   materialPreference?: string;

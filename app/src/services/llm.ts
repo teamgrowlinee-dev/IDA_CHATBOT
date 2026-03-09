@@ -311,6 +311,160 @@ export const classifyIntentWithContext = async (input: {
   }
 };
 
+export interface RoomScanFrameInput {
+  label: string;
+  url: string;
+}
+
+export interface RoomScanAnalysis {
+  summary: string;
+  roomType: string;
+  detectedItems: string[];
+  styleHints: string[];
+  colorPalette: string[];
+  keywords: string[];
+}
+
+const normalizeTextList = (value: unknown, maxItems = 8): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const normalized = item.trim().replace(/\s+/g, " ");
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= maxItems) break;
+  }
+
+  return out;
+};
+
+const buildRoomScanFallback = (framesCount: number): RoomScanAnalysis => ({
+  summary:
+    framesCount > 0
+      ? `Skänn salvestatud (${framesCount} kaadrit). Kirjelda nüüd, millist toodet otsid, ja kasutan ruumi infot soovituste täpsustamiseks.`
+      : "Skänn puudub. Lisa vähemalt 4 kaadrit, et AI saaks ruumi analüüsida.",
+  roomType: "",
+  detectedItems: [],
+  styleHints: [],
+  colorPalette: [],
+  keywords: ["mööbel", "ruum", "sisustus"]
+});
+
+const parseRoomScanAnalysisJson = (raw: string): RoomScanAnalysis | null => {
+  if (!raw) return null;
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+    if (!summary) return null;
+
+    const roomType = typeof parsed.roomType === "string" ? parsed.roomType.trim() : "";
+    const detectedItems = normalizeTextList(parsed.detectedItems, 10);
+    const styleHints = normalizeTextList(parsed.styleHints, 6);
+    const colorPalette = normalizeTextList(parsed.colorPalette, 6);
+    const keywords = normalizeTextList(parsed.keywords, 12);
+    const mergedKeywords = keywords.length
+      ? keywords
+      : normalizeTextList([...detectedItems, ...styleHints, ...colorPalette], 12);
+
+    return {
+      summary,
+      roomType,
+      detectedItems,
+      styleHints,
+      colorPalette,
+      keywords: mergedKeywords
+    };
+  } catch {
+    return null;
+  }
+};
+
+const SYSTEM_PROMPT_ROOM_SCAN = `
+Sa oled sisekujunduse visuaalanalüütik. Sulle antakse mitu telefoni kaadrit samast toast.
+Analüüsi nähtav ruum ja tagasta AINULT JSON objekt:
+{
+  "summary": "1-2 lauset eesti keeles, mis kirjeldavad ruumi tervikut",
+  "roomType": "elutuba|magamistuba|kontor|söögituba|lastetuba|esik|muu",
+  "detectedItems": ["toode1", "toode2", "..."],
+  "styleHints": ["stiil/materjal 1", "..."],
+  "colorPalette": ["värv 1", "..."],
+  "keywords": ["otsingu märksõna 1", "..."]
+}
+
+REEGLID:
+- detectedItems peab sisaldama ainult päriselt nähtavaid asju.
+- Kui pole kindel, ära lisa.
+- keywords peavad olema kasulikud sisustus-toodete soovitamiseks.
+- Ära lisa teksti väljaspool JSON objekti.
+`.trim();
+
+export const analyzeRoomScanFrames = async (input: {
+  frames: RoomScanFrameInput[];
+  roomMeta?: { width_cm?: number; length_cm?: number; height_cm?: number };
+}): Promise<RoomScanAnalysis> => {
+  const frames = (input.frames ?? []).slice(0, 8).filter((frame) => frame.url?.startsWith("data:image/"));
+  if (frames.length === 0) {
+    return buildRoomScanFallback(0);
+  }
+
+  if (!env.USE_OPENAI || !client) {
+    return buildRoomScanFallback(frames.length);
+  }
+
+  const roomMetaParts: string[] = [];
+  if (Number.isFinite(input.roomMeta?.width_cm)) roomMetaParts.push(`laius=${input.roomMeta?.width_cm}cm`);
+  if (Number.isFinite(input.roomMeta?.length_cm)) roomMetaParts.push(`pikkus=${input.roomMeta?.length_cm}cm`);
+  if (Number.isFinite(input.roomMeta?.height_cm)) roomMetaParts.push(`kõrgus=${input.roomMeta?.height_cm}cm`);
+
+  const userContent: Array<{ type: "input_text"; text: string } | { type: "input_image"; image_url: string }> = [
+    {
+      type: "input_text",
+      text: `Kaadrite arv: ${frames.length}. ${roomMetaParts.length ? `Ruumi mõõdud: ${roomMetaParts.join(", ")}.` : ""} Palun analüüsi kogu nähtavat ruumi.`
+    }
+  ];
+
+  for (let i = 0; i < frames.length; i += 1) {
+    const frame = frames[i];
+    userContent.push({
+      type: "input_text",
+      text: `Kaader ${i + 1}: ${frame.label || "telefonikaader"}`
+    });
+    userContent.push({
+      type: "input_image",
+      image_url: frame.url
+    });
+  }
+
+  try {
+    const response = await client.responses.create({
+      model: env.OPENAI_MODEL,
+      input: [
+        { role: "system", content: SYSTEM_PROMPT_ROOM_SCAN },
+        { role: "user", content: userContent as any }
+      ],
+      max_output_tokens: 500
+    });
+
+    const parsed = parseRoomScanAnalysisJson(response.output_text?.trim() ?? "");
+    return parsed ?? buildRoomScanFallback(frames.length);
+  } catch (error) {
+    console.error(
+      "[llm] Room scan analysis failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return buildRoomScanFallback(frames.length);
+  }
+};
+
 export interface CatalogItemForAI {
   id: string;
   title: string;
@@ -388,6 +542,29 @@ Tagasta AINULT JSON massiiv, ilma selgitusteta:
         .map((ep) => `  - ${ep.element}: stiil=${ep.style}`)
         .join("\n")
     : "  (täpsustamata)";
+  const widthCm = Number.isFinite(answers.widthCm) && Number(answers.widthCm) > 0 ? Number(answers.widthCm) : null;
+  const lengthCm =
+    Number.isFinite(answers.lengthCm) && Number(answers.lengthCm) > 0 ? Number(answers.lengthCm) : null;
+  const heightCm =
+    Number.isFinite(answers.heightCm) && Number(answers.heightCm) > 0 ? Number(answers.heightCm) : null;
+  const computedAreaM2 = widthCm !== null && lengthCm !== null ? (widthCm * lengthCm) / 10000 : null;
+  const computedVolumeM3 = computedAreaM2 !== null && heightCm !== null ? (computedAreaM2 * heightCm) / 100 : null;
+  const roomAreaM2 =
+    Number.isFinite(answers.roomAreaM2) && Number(answers.roomAreaM2) > 0 ? Number(answers.roomAreaM2) : computedAreaM2;
+  const roomVolumeM3 =
+    Number.isFinite(answers.roomVolumeM3) && Number(answers.roomVolumeM3) > 0
+      ? Number(answers.roomVolumeM3)
+      : computedVolumeM3;
+  const dimensionsLines: string[] = [];
+  if (answers.dimensionsKnown) {
+    dimensionsLines.push(
+      `- Ruumi mõõdud (X/Y/Z): ${widthCm !== null ? `${widthCm}cm` : "?"} x ${
+        lengthCm !== null ? `${lengthCm}cm` : "?"
+      } x ${heightCm !== null ? `${heightCm}cm` : "?"}`
+    );
+    if (roomAreaM2 !== null) dimensionsLines.push(`- Ruumi pindala: ${roomAreaM2.toFixed(2)} m²`);
+    if (roomVolumeM3 !== null) dimensionsLines.push(`- Ruumi maht: ${roomVolumeM3.toFixed(2)} m³`);
+  }
 
   const userContent = `KLIENDI EELISTUSED:
 - Ruum: ${answers.room}
@@ -396,7 +573,7 @@ Tagasta AINULT JSON massiiv, ilma selgitusteta:
 - Värvitoon (üldpalett): ${answers.colorTone}
 - Lapsi majas: ${answers.hasChildren ? "Jah" : "Ei"}
 - Lemmikloomi: ${answers.hasPets ? "Jah" : "Ei"}
-${answers.dimensionsKnown ? `- Ruumi mõõdud: ${answers.widthCm}cm x ${answers.lengthCm}cm` : ""}
+${dimensionsLines.join("\n")}
 
 VALITUD ELEMENDID (koosta komplekt AINULT nendest):
 ${(answers.selectedElements ?? []).map((e) => `  - ${e}`).join("\n") || "  (kõik ruumielemendid)"}

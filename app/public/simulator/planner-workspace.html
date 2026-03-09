@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IDA Planner</title>
+  <script type="importmap">
+  { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+  <link rel="modulepreload" href="/vendor/three/build/three.module.js" />
+  <link rel="modulepreload" href="/vendor/three/examples/jsm/controls/OrbitControls.js" />
+  <link rel="stylesheet" href="/simulator-assets/simulator.css" />
+  <link rel="stylesheet" href="/simulator-assets/workspace.css" />
+</head>
+<body class="workspace-body">
+
+  <!-- Loading overlay (pure CSS, visible before JS) -->
+  <div id="app-loading" class="app-loading">
+    <div class="app-spinner"></div>
+    <div class="app-loading-text">Laen IDA Plannerit...</div>
+  </div>
+
+  <!-- ── Top toolbar ── -->
+  <div class="ws-toolbar">
+    <div class="ws-toolbar-left">
+      <span id="room-name" class="ws-room-name">Laen...</span>
+      <span id="room-dims" class="ws-room-dims"></span>
+    </div>
+    <div class="ws-toolbar-center">
+      <div class="ws-mode-group">
+        <button class="btn-mode" id="mode-edit" data-mode="edit-room">Toa seaded</button>
+        <button class="btn-mode active" id="mode-furnish" data-mode="furnish">Sisustus</button>
+      </div>
+      <button class="btn-icon" id="undo-btn" title="Tagasi (Ctrl+Z)">↩</button>
+      <button class="btn-icon" id="redo-btn" title="Edasi (Ctrl+Y)">↪</button>
+      <button class="btn-icon btn-clear-scene" id="clear-scene-btn" title="Tühjenda stseeni (kustuta kõik esemed)">🗑</button>
+      <button class="btn-save" id="save-btn">Salvesta</button>
+    </div>
+    <div class="ws-toolbar-right">
+      <button class="ws-cart-pill" id="cart-pill" title="Ostukorv avada paremal">
+        <span>🛒</span>
+        <span class="ws-cart-count" id="cart-count">0</span>
+        <span id="cart-total"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Main layout ── -->
+  <div class="ws-main">
+
+    <!-- Left rail -->
+    <div class="ws-rail ws-rail-left" id="left-rail">
+      <button class="rail-btn" data-panel="rooms" data-side="left" title="Projektid">
+        <span class="ftb-icon">🏠</span>
+        <span class="rail-label">Ruumid</span>
+      </button>
+      <button class="rail-btn" data-panel="catalog" data-side="left" title="Kataloog">
+        <span class="ftb-icon">📦</span>
+        <span class="rail-label">Kataloog</span>
+      </button>
+      <button class="rail-btn" data-panel="room-edit" data-side="left" title="Toa seaded">
+        <span class="ftb-icon">⚙</span>
+        <span class="rail-label">Seaded</span>
+      </button>
+    </div>
+
+    <!-- Left panel -->
+    <div id="left-panel" class="ws-panel ws-panel-left">
+      <div id="panel-rooms" class="panel-content" hidden></div>
+      <div id="panel-catalog" class="panel-content" hidden></div>
+      <div id="panel-room-edit" class="panel-content" hidden></div>
+    </div>
+
+    <!-- Canvas area -->
+    <div class="ws-canvas-wrap" id="canvas-wrap">
+      <div id="scene-3d" class="ws-scene-3d"></div>
+      <div id="floating-toolbar" class="ws-floating-toolbar" hidden></div>
+      <div id="hover-tooltip" class="ws-hover-tooltip" hidden></div>
+      <div id="move-hint" class="ws-move-hint" hidden>
+        Kliki põrandal, kuhu soovid eseme paigutada. [Esc] tühistab.
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div id="right-panel" class="ws-panel ws-panel-right">
+      <div id="panel-cart" class="panel-content" hidden></div>
+      <div id="panel-details" class="panel-content" hidden></div>
+    </div>
+
+    <!-- Right rail -->
+    <div class="ws-rail ws-rail-right" id="right-rail">
+      <button class="rail-btn" data-panel="cart" data-side="right" title="Ostukorv">
+        <span class="ftb-icon">🛒</span>
+        <span class="rail-label">Korv</span>
+      </button>
+      <button class="rail-btn" data-panel="details" data-side="right" title="Toote detailid">
+        <span class="ftb-icon">ℹ</span>
+        <span class="rail-label">Detailid</span>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Status bar -->
+  <div class="ws-status-bar">
+    <span id="status-dot" class="status-dot"></span>
+    <span id="status-text">Valmis</span>
+  </div>
+
+  <script>
+    window.addEventListener("error", (e) => {
+      const el = document.getElementById("status-text");
+      if (el) el.textContent = "Viga: " + (e.message || e.filename || "tundmatu");
+      const dot = document.getElementById("status-dot");
+      if (dot) { dot.className = "status-dot err"; }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      const el = document.getElementById("status-text");
+      if (el) el.textContent = "Viga: " + (e.reason?.message || String(e.reason) || "tundmatu");
+      const dot = document.getElementById("status-dot");
+      if (dot) { dot.className = "status-dot err"; }
+    });
+  </script>
+  <script type="module" src="/simulator-assets/planner-workspace.js"></script>
+</body>
+</html>

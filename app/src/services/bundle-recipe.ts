@@ -61,8 +61,28 @@ export const ANCHOR_OPTIONS: Record<string, string[]> = {
   "Esik": ["Riidekapp", "Nagel", "Bot vali ise"]
 };
 
+export const BUDGET_RANGE_LIMITS = {
+  "2000-7000": { min: 2000, max: 7000 },
+  "7000-12000": { min: 7000, max: 12000 },
+  "12000+": { min: 12000, max: 25000 }
+} as const;
+
+export type BudgetRangeKey = keyof typeof BUDGET_RANGE_LIMITS;
+
+export const parseBudgetRangeLimits = (budgetRange: string): { min: number; max: number } | null => {
+  return (
+    BUDGET_RANGE_LIMITS[budgetRange as BudgetRangeKey] ?? null
+  );
+};
+
+export const isBudgetCustomInRange = (budgetRange: string, budgetCustom: number): boolean => {
+  const limits = parseBudgetRangeLimits(budgetRange);
+  if (!limits || !Number.isFinite(budgetCustom)) return false;
+  return budgetCustom >= limits.min && budgetCustom <= limits.max;
+};
+
 // Style tag keywords for scoring
-const STYLE_KEYWORDS: Record<string, string[]> = {
+export const STYLE_KEYWORDS: Record<string, string[]> = {
   "Modern": ["modern", "minimalist", "kaasaegne", "contemporary"],
   "Skandinaavia": ["skandinaavia", "scandi", "nordic", "põhjamaade"],
   "Klassika": ["klassika", "klassikaline", "classic", "traditional"],
@@ -78,15 +98,11 @@ const MATERIAL_CONFLICTS: Record<string, string[]> = {
 };
 
 export function parseBudgetMax(answers: BundleAnswers): number {
-  if (answers.budgetRange === "custom" && answers.budgetCustom) {
-    return answers.budgetCustom;
+  if (Number.isFinite(answers.budgetCustom) && Number(answers.budgetCustom) > 0) {
+    return Number(answers.budgetCustom);
   }
-  const ranges: Record<string, number> = {
-    "2000-4000": 4000,
-    "4000-7000": 7000,
-    "7000+": 20000
-  };
-  return ranges[answers.budgetRange] ?? 4000;
+  const limits = parseBudgetRangeLimits(answers.budgetRange);
+  return limits?.max ?? 7000;
 }
 
 export function scoreCatalogProduct(product: ProductCard, answers: BundleAnswers): number {

@@ -23,33 +23,99 @@ const DEFAULT_MODEL_GLB = "https://threejs.org/examples/models/gltf/DamagedHelme
 
 const CATEGORY_DEFAULT_DIMS: Record<string, ProductDimensionsCm> = {
   sofa: { w: 220, d: 95, h: 85 },
+  armchair: { w: 85, d: 90, h: 90 },
   bed: { w: 180, d: 210, h: 95 },
+  sunlounger: { w: 75, d: 200, h: 80 },
   desk: { w: 140, d: 70, h: 75 },
   table: { w: 160, d: 90, h: 75 },
+  coffeetable: { w: 120, d: 70, h: 45 },
   chair: { w: 55, d: 55, h: 90 },
+  ottoman: { w: 80, d: 80, h: 45 },
+  bench: { w: 120, d: 40, h: 45 },
   shelf: { w: 90, d: 35, h: 190 },
   cabinet: { w: 100, d: 45, h: 120 },
+  dresser: { w: 100, d: 50, h: 90 },
+  tvunit: { w: 160, d: 45, h: 55 },
+  wardrobe: { w: 120, d: 60, h: 210 },
   lamp: { w: 40, d: 40, h: 150 },
   rug: { w: 200, d: 300, h: 2 },
+  mirror: { w: 60, d: 5, h: 150 },
+  nightstand: { w: 50, d: 40, h: 60 },
   decor: { w: 40, d: 40, h: 40 },
+  barstool: { w: 45, d: 45, h: 110 },
+  coatrack: { w: 40, d: 40, h: 180 },
+  sidetable: { w: 50, d: 50, h: 55 },
+  consoletable: { w: 120, d: 35, h: 80 },
+  pendantlamp: { w: 40, d: 40, h: 200 },
+  tablelamp: { w: 35, d: 35, h: 55 },
+  laddershelf: { w: 80, d: 35, h: 170 },
+  wallshelf: { w: 100, d: 25, h: 120 },
+  vitrinecabinet: { w: 90, d: 45, h: 180 },
+  cornersofa: { w: 270, d: 170, h: 85 },
+  sofabed: { w: 210, d: 100, h: 90 },
+  chaiselongue: { w: 90, d: 200, h: 85 },
+  taburet: { w: 40, d: 40, h: 50 },
+  sideboard: { w: 160, d: 50, h: 80 },
+  shoerack: { w: 80, d: 35, h: 90 },
+  vanity: { w: 90, d: 50, h: 145 },
+  roundtable: { w: 90, d: 90, h: 75 },
+  officechair: { w: 60, d: 60, h: 115 },
+  arclamp: { w: 50, d: 50, h: 190 },
+  barcart: { w: 55, d: 45, h: 90 },
+  winerack: { w: 60, d: 30, h: 60 },
+  hangingchair: { w: 110, d: 100, h: 190 },
   generic: { w: 100, d: 60, h: 90 }
 };
 
 const inferCategory = (product: CatalogProductLike): string => {
-  const searchable = normalizeForMatch(
+  const s = normalizeForMatch(
     [product.title, ...product.categories, ...product.categorySlugs, product.description].join(" ")
   );
+  const rawTitle = product.title.toLowerCase();
 
-  if (/voodi|voodipeats/.test(searchable)) return "bed";
-  if (/diivan|sohva/.test(searchable)) return "sofa";
-  if (/kirjutuslaud|toolaud|arvutilaud|desk/.test(searchable)) return "desk";
-  if (/soogilaud|laud/.test(searchable)) return "table";
-  if (/kontoritool|tool|tugitool|chair/.test(searchable)) return "chair";
-  if (/riiul/.test(searchable)) return "shelf";
-  if (/kummut|kapp|tv kapp|tvkapp|vitriinkapp/.test(searchable)) return "cabinet";
-  if (/lamp|valgusti/.test(searchable)) return "lamp";
-  if (/vaip/.test(searchable)) return "rug";
-  if (/dekor|aksessuaar|peegel/.test(searchable)) return "decor";
+  // Most specific first
+  if (/paevitusvoodi|paevitus voodi|lezlong|sunlounger/.test(s)) return "sunlounger";
+  if (/voodi|voodipeats/.test(s)) return "bed";
+  if (/diivanilaud|kohvilaud|sohvalaud/.test(s)) return "coffeetable";
+  if (/konsoollaud|konsool/.test(s)) return "consoletable";
+  if (/abilaud|korvallaud|abielaud|sidetable/.test(s)) return "sidetable";
+  if (/nurgadiivan|nurga diivan|nurk diivan|l diivan/.test(s)) return "cornersofa";
+  if (/diivanvoodi|diivan voodi/.test(s)) return "sofabed";
+  if (/lamamistool|lamamis/.test(s)) return "chaiselongue";
+  if (/diivan|sohva/.test(s)) return "sofa";
+  if (/tugitool/.test(s)) return "armchair";
+  if (/baaritool|baartool|poolkorge tool/.test(s)) return "barstool";
+  if (/kirjutuslaud|toolaud|arvutilaud|desk/.test(s)) return "desk";
+  if ((rawTitle.includes("ø") || /ummargune/.test(s)) && /laud/.test(s)) return "roundtable";
+  if (/soogilaud|laud/.test(s)) return "table";
+  if (/nagi|nagiriiuli|riidekonks|riidepuu/.test(s)) return "coatrack";
+  if (/taburet/.test(s)) return "taburet";
+  if (/ripptool|ripptugi|kiiktool/.test(s)) return "hangingchair";
+  if (/kontoritool/.test(s)) return "officechair";
+  if (/tool|chair/.test(s)) return "chair";
+  if (/kummut/.test(s)) return "dresser";
+  if (/serveerimislaud|puhvet/.test(s)) return "sideboard";
+  if (/riietumislaud/.test(s)) return "vanity";
+  if (/baarikaru|serveerimiskaru/.test(s)) return "barcart";
+  if (/tv kapp|tvkapp|telerialus|tv alus/.test(s)) return "tvunit";
+  if (/garderoob|riidekapp/.test(s)) return "wardrobe";
+  if (/jalatsiriiul|kingseriiul/.test(s)) return "shoerack";
+  if (/redelriiul/.test(s)) return "laddershelf";
+  if (/seinariiul/.test(s)) return "wallshelf";
+  if (/vitriinkapp|vitriin/.test(s)) return "vitrinecabinet";
+  if (/riiul|raamaturiiul/.test(s)) return "shelf";
+  if (/veiniriiul|veinirest|veinihoidja/.test(s)) return "winerack";
+  if (/kapp/.test(s)) return "cabinet";
+  if (/tumba|puf|istepadi/.test(s)) return "ottoman";
+  if (/pingike|bench/.test(s)) return "bench";
+  if (/kaarlamp|kaar lamp|kaarelamp/.test(s)) return "arclamp";
+  if (/rippvalgusti|laevalgusti|luhter|luuster/.test(s)) return "pendantlamp";
+  if (/lauavalgusti|laualamp|laualamb/.test(s)) return "tablelamp";
+  if (/lamp|valgusti/.test(s)) return "lamp";
+  if (/vaip|matt/.test(s)) return "rug";
+  if (/peegel/.test(s)) return "mirror";
+  if (/ookapiike|voodi kapp/.test(s)) return "nightstand";
+  if (/dekor|aksessuaar/.test(s)) return "decor";
   return "generic";
 };
 

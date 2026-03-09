@@ -1,6 +1,6 @@
 import type { Bundle, BundleAnswers, BundleItem, ProductCard } from "../types/chat.js";
 import { fetchProductCatalog } from "./storefront-tools.js";
-import { BUNDLE_ROLES, ROOM_CATEGORIES, parseBudgetMax, scoreCatalogProduct } from "./bundle-recipe.js";
+import { BUNDLE_ROLES, ROOM_CATEGORIES, STYLE_KEYWORDS, parseBudgetMax, scoreCatalogProduct } from "./bundle-recipe.js";
 import { generateBundlesWithAI, type CatalogItemForAI } from "./llm.js";
 import { env } from "../config/env.js";
 
@@ -256,6 +256,32 @@ interface SelectedElementSpec {
 }
 
 const ACCESSORY_SPEC_KEYS = new Set<MenuElementKey>(["lamp", "rug", "decor", "mirror"]);
+const GENERIC_ALT_CATEGORY_SLUGS = new Set([
+  "laos",
+  "kohe-laos",
+  "koik-kohe-laos",
+  "k6ik-kohe-laos",
+  "just-saabunud",
+  "kingitused",
+  "moobel",
+  "kodu-aksessuaarid"
+]);
+const GENERIC_ALT_CATEGORY_SLUG_PREFIXES = ["kohe-laos-", "koik-kohe-laos-", "k6ik-kohe-laos-"];
+const SIGNATURE_TOKEN_MIN_LEN = 4;
+const FAMILY_TOKEN_STOPWORDS = new Set([
+  "must",
+  "valge",
+  "hall",
+  "beez",
+  "beez",
+  "natural",
+  "naturaalne",
+  "komplekt",
+  "dekor",
+  "aksessuaar",
+  "toode",
+  "laos"
+]);
 
 const MAX_ALTERNATIVES_PER_ITEM = 4;
 const BEDROOM_BED_BLOCKED_SLUGS = new Set([
@@ -360,6 +386,70 @@ const bundleSignature = (bundle: Bundle): string =>
     .sort((a, b) => a.localeCompare(b))
     .join("|");
 
+const getSpecificCategorySlugs = (product: CatalogProductRaw): string[] =>
+  (product.categorySlugs ?? []).filter((slugRaw) => {
+    const slug = normalizeForMatch(slugRaw).replace(/\s+/g, "-");
+    if (!slug) return false;
+    if (GENERIC_ALT_CATEGORY_SLUGS.has(slug)) return false;
+    if (GENERIC_ALT_CATEGORY_SLUG_PREFIXES.some((prefix) => slug.startsWith(prefix))) return false;
+    return true;
+  });
+
+const toSignatureTokens = (raw: string): string[] =>
+  normalizeForMatch(raw)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= SIGNATURE_TOKEN_MIN_LEN);
+
+const normalizeFamilyToken = (rawToken: string): string => {
+  let token = normalizeForMatch(rawToken);
+  if (!token) return "";
+  if (token.startsWith("padj")) return "padj";
+  if (token.startsWith("latern")) return "latern";
+  if (token.startsWith("hari")) return "hari";
+  if (token.startsWith("tool") || token.startsWith("tooli") || token.startsWith("soogitool")) return "tool";
+  if (token.startsWith("laud") || token.startsWith("soogilaud") || token.startsWith("kirjutuslaud")) return "laud";
+  if (token.startsWith("ookap") || token.startsWith("kapp")) return "kapp";
+  if (token.startsWith("peegel")) return "peegel";
+  if (token.startsWith("vaip")) return "vaip";
+  if (token.startsWith("lamp") || token.startsWith("valgust")) return "lamp";
+  if (token.endsWith("id") || token.endsWith("ad") || token.endsWith("ud") || token.endsWith("ed")) {
+    token = token.slice(0, -2);
+  } else if (token.endsWith("d") || token.endsWith("s")) {
+    token = token.slice(0, -1);
+  }
+  return token;
+};
+
+const extractFamilyTokens = (raw: string): string[] =>
+  normalizeForMatch(raw)
+    .split(" ")
+    .map((token) => normalizeFamilyToken(token))
+    .filter((token) => token.length >= 3 && !FAMILY_TOKEN_STOPWORDS.has(token));
+
+const STYLE_LABELS = Object.keys(STYLE_KEYWORDS);
+
+const detectStylesFromCards = (cards: ProductCard[]): string[] => {
+  const styleScores = new Map<string, number>();
+
+  for (const card of cards) {
+    const searchable = normalizeForMatch([card.title, card.handle, ...(card.categoryNames ?? [])].join(" "));
+    for (const style of STYLE_LABELS) {
+      const keywords = STYLE_KEYWORDS[style] ?? [];
+      if (keywords.some((kw) => searchable.includes(normalizeForMatch(kw)))) {
+        styleScores.set(style, (styleScores.get(style) ?? 0) + 1);
+      }
+    }
+  }
+
+  return [...styleScores.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return STYLE_LABELS.indexOf(a[0]) - STYLE_LABELS.indexOf(b[0]);
+    })
+    .map(([style]) => style);
+};
+
 function rankAlternativesForItem(
   item: BundleItem,
   bundleItemIds: Set<string>,
@@ -381,6 +471,16 @@ function rankAlternativesForItem(
   const resolvedSpec = resolvedSpecKey ? ELEMENT_SPEC[resolvedSpecKey] : null;
   const resolvedSpecSlugs = new Set(resolvedSpec?.slugs ?? []);
   const resolvedSpecKeywords = (resolvedSpec?.keywords ?? []).map((kw) => normalizeForMatch(kw));
+  const currentSpecificSlugs = currentRaw ? new Set(getSpecificCategorySlugs(currentRaw)) : new Set<string>();
+  const currentSignatureTokens = new Set<string>([
+    ...toSignatureTokens(item.title),
+    ...(currentRaw ? toSignatureTokens(currentRaw.handle ?? "") : []),
+    ...(currentRaw ? toSignatureTokens((currentRaw.categorySlugs ?? []).join(" ")) : [])
+  ]);
+  const currentFamilyTokens = new Set<string>([
+    ...extractFamilyTokens(item.title),
+    ...(currentRaw ? extractFamilyTokens(currentRaw.handle ?? "") : [])
+  ]);
   const basePrice = parseDisplayPrice(item.price);
 
   const ranked = filteredCatalog
@@ -393,20 +493,43 @@ function rankAlternativesForItem(
 
       const searchable = buildSearchableText(candidate);
       const candidateSpecKey = inferSpecKeyFromRawProduct(candidate);
-      const isAccessoryCandidate = candidateSpecKey !== null && ACCESSORY_SPEC_KEYS.has(candidateSpecKey);
-      const roleCompatible =
-        item.roleInBundle === "aksessuaar"
-          ? isAccessoryCandidate || (candidateSpecKey !== null && resolvedSpecKey === candidateSpecKey)
-          : !isAccessoryCandidate || (candidateSpecKey !== null && resolvedSpecKey === candidateSpecKey);
-
-      if (!roleCompatible) return null;
-
       const slugOverlapCount =
         resolvedSpecSlugs.size > 0
           ? (candidate.categorySlugs ?? []).filter((slug) => resolvedSpecSlugs.has(slug)).length
           : 0;
       const keywordMatch = resolvedSpecKeywords.some((kw) => searchable.includes(kw));
       const sameSpec = resolvedSpecKey !== null && candidateSpecKey === resolvedSpecKey;
+      const sameOrNearSpec =
+        resolvedSpecKey === null
+          ? true
+          : sameSpec || (candidateSpecKey === null && (slugOverlapCount > 0 || keywordMatch));
+
+      if (!sameOrNearSpec) return null;
+
+      const candidateSpecificSlugs = getSpecificCategorySlugs(candidate);
+      const sameSpecificCategory =
+        currentSpecificSlugs.size > 0 &&
+        candidateSpecificSlugs.some((slug) => currentSpecificSlugs.has(slug));
+      const candidateSignatureTokens = toSignatureTokens(
+        [candidate.title, candidate.handle, ...(candidate.categorySlugs ?? [])].join(" ")
+      );
+      const signatureMatch = candidateSignatureTokens.some((token) => currentSignatureTokens.has(token));
+      const candidateFamilyTokens = extractFamilyTokens(
+        [candidate.title, candidate.handle].join(" ")
+      );
+      const familyTokenMatch =
+        currentFamilyTokens.size > 0 &&
+        candidateFamilyTokens.some((token) => currentFamilyTokens.has(token));
+
+      // Alternatives must stay in the same element family, not just same broad room scope.
+      if (currentSpecificSlugs.size > 0 && !sameSpecificCategory && !signatureMatch) {
+        return null;
+      }
+
+      // Decor category is broad; require explicit family match (e.g. lantern->lantern, chair->chair).
+      if (resolvedSpecKey === "decor" && !familyTokenMatch) {
+        return null;
+      }
 
       const card = toProductCard(candidate);
       let score = scoreCatalogProduct(card, answers);
@@ -452,6 +575,50 @@ function attachAlternativesToBundles(
     const totalPrice = items.reduce((sum, current) => sum + parseDisplayPrice(current.price), 0);
     return { ...bundle, items, totalPrice };
   });
+}
+
+export async function getBundleStyleOptions(input: {
+  room: string;
+  selectedElements?: string[];
+  anchorProduct?: string;
+}): Promise<Record<string, string[]>> {
+  const roomSpec = ROOM_MENU_SPEC[input.room];
+  if (!roomSpec) return {};
+
+  const selectedElements =
+    (input.selectedElements ?? []).filter((value) => typeof value === "string" && value.trim().length > 0);
+  const effectiveElements = selectedElements.length > 0 ? selectedElements : Object.keys(roomSpec.elementToSpec);
+
+  const probeAnswers: BundleAnswers = {
+    room: input.room,
+    anchorProduct: input.anchorProduct ?? "Bot vali ise",
+    budgetRange: "2000-7000",
+    selectedElements: effectiveElements,
+    elementPreferences: [],
+    colorTone: "Neutraalne",
+    hasChildren: false,
+    hasPets: false,
+    dimensionsKnown: false
+  };
+
+  const rawCatalog = (await fetchProductCatalog()) as unknown as CatalogProductRaw[];
+  const filtered = filterByRoom(rawCatalog, input.room, effectiveElements, probeAnswers.anchorProduct);
+  const selectedSpecs = resolveSelectedElementSpecs(probeAnswers);
+
+  const byElement: Record<string, string[]> = {};
+  for (const spec of selectedSpecs) {
+    const candidates = rankCandidatesForSpec(filtered, spec.spec, probeAnswers, spec.specKey).slice(0, 80);
+    const styles = detectStylesFromCards(candidates);
+    byElement[spec.element] = [...new Set(styles)];
+  }
+
+  for (const element of effectiveElements) {
+    if (!byElement[element]) {
+      byElement[element] = [];
+    }
+  }
+
+  return byElement;
 }
 
 function buildStrictBundleFromSelections(

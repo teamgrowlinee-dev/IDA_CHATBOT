@@ -1,0 +1,68 @@
+{
+  "profile_id": "prof_1772804986232_116053b4806b",
+  "projects": [
+    {
+      "name": "Test terrass2",
+      "shape": "rect",
+      "dimensions": {
+        "width_cm": 400,
+        "length_cm": 500,
+        "height_cm": 250,
+        "area_m2": 20,
+        "volume_m3": 50
+      },
+      "room_shell": {
+        "shape": "rect",
+        "walls": [
+          {
+            "id": "north",
+            "length_cm": 400
+          },
+          {
+            "id": "east",
+            "length_cm": 500
+          },
+          {
+            "id": "south",
+            "length_cm": 400
+          },
+          {
+            "id": "west",
+            "length_cm": 500
+          }
+        ],
+        "dimensions": {
+          "width_cm": 400,
+          "length_cm": 500,
+          "height_cm": 250,
+          "area_m2": 20,
+          "volume_m3": 50
+        },
+        "openings": [],
+        "fixed_elements": [],
+        "theme": {
+          "style_id": "ida-clean",
+          "wall_color": "#f5f3ef",
+          "floor_material": "oak",
+          "floor_tone": "natural"
+        }
+      },
+      "scan": {
+        "frames": [],
+        "coverage_status": "pending"
+      },
+      "analysis": {
+        "analysis_status": "idle",
+        "summary": "",
+        "detected_items": []
+      },
+      "scene": {
+        "objects": []
+      },
+      "id": "proj_1772804986232_85d92860",
+      "profile_id": "prof_1772804986232_116053b4806b",
+      "created_at": "2026-03-06T13:49:46.232Z",
+      "updated_at": "2026-03-06T13:49:46.232Z"
+    }
+  ]
+}

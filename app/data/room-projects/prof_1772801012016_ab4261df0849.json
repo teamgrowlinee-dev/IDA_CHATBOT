@@ -1,0 +1,171 @@
+{
+  "profile_id": "prof_1772801012016_ab4261df0849",
+  "projects": [
+    {
+      "name": "Terass",
+      "room_type": "outdoor",
+      "shape": "rect",
+      "dimensions": {
+        "width_cm": 600,
+        "length_cm": 500,
+        "height_cm": 250,
+        "area_m2": 30,
+        "volume_m3": 75
+      },
+      "room_shell": {
+        "shape": "rect",
+        "walls": [
+          {
+            "id": "north",
+            "length_cm": 600
+          },
+          {
+            "id": "east",
+            "length_cm": 500
+          },
+          {
+            "id": "south",
+            "length_cm": 600
+          },
+          {
+            "id": "west",
+            "length_cm": 500
+          }
+        ],
+        "dimensions": {
+          "width_cm": 600,
+          "length_cm": 500,
+          "height_cm": 250,
+          "area_m2": 30,
+          "volume_m3": 75
+        },
+        "openings": [],
+        "fixed_elements": [],
+        "theme": {
+          "style_id": "ida-clean",
+          "wall_color": "#f5f3ef",
+          "floor_material": "oak",
+          "floor_tone": "natural"
+        }
+      },
+      "scan": {
+        "frames": [],
+        "coverage_status": "pending"
+      },
+      "analysis": {
+        "analysis_status": "idle",
+        "summary": "",
+        "detected_items": []
+      },
+      "scene": {
+        "objects": [
+          {
+            "id": "cart_1772886388834_ac4183ba",
+            "source": "cart",
+            "source_key": "90937:1",
+            "title": "Mooduldiivan COPACABANA",
+            "type": "sofa",
+            "sku": "90937",
+            "dims_cm": {
+              "w": 220,
+              "d": 95,
+              "h": 85
+            },
+            "pose": {
+              "x_cm": 107.65915753162406,
+              "z_cm": 338.59637280757653,
+              "rotation_deg": 49.390625
+            },
+            "attach": {
+              "snap": "none"
+            },
+            "clearance_cm": 8,
+            "locked": false,
+            "movable": true,
+            "deletable": true,
+            "color": "#c89a5b"
+          }
+        ],
+        "last_saved_at": "2026-03-07T12:57:52.926Z",
+        "camera_state": {
+          "orbitTarget": [
+            0,
+            0.75,
+            0
+          ],
+          "orbitDistance": 4.8417455530004885,
+          "orbitPolar": 1.1401086161144034,
+          "orbitAzimuth": -0.25309155663204497
+        }
+      },
+      "id": "proj_1772886261772_d232d2ed",
+      "profile_id": "prof_1772801012016_ab4261df0849",
+      "created_at": "2026-03-07T12:24:21.771Z",
+      "updated_at": "2026-03-07T12:57:52.926Z"
+    },
+    {
+      "name": "Uus tuba",
+      "shape": "rect",
+      "dimensions": {
+        "width_cm": 600,
+        "length_cm": 600,
+        "height_cm": 200,
+        "area_m2": 36,
+        "volume_m3": 72
+      },
+      "room_shell": {
+        "shape": "rect",
+        "walls": [
+          {
+            "id": "north",
+            "length_cm": 600
+          },
+          {
+            "id": "east",
+            "length_cm": 600
+          },
+          {
+            "id": "south",
+            "length_cm": 600
+          },
+          {
+            "id": "west",
+            "length_cm": 600
+          }
+        ],
+        "dimensions": {
+          "width_cm": 600,
+          "length_cm": 600,
+          "height_cm": 200,
+          "area_m2": 36,
+          "volume_m3": 72
+        },
+        "openings": [],
+        "fixed_elements": [],
+        "theme": {
+          "style_id": "ida-clean",
+          "wall_color": "#f5f3ef",
+          "floor_material": "oak",
+          "floor_tone": "natural"
+        }
+      },
+      "scan": {
+        "frames": [],
+        "coverage_status": "pending"
+      },
+      "analysis": {
+        "analysis_status": "idle",
+        "summary": "",
+        "detected_items": []
+      },
+      "scene": {
+        "objects": [],
+        "last_saved_at": "2026-03-06T12:58:53.417Z"
+      },
+      "id": "proj_1772801829649_832813c5",
+      "profile_id": "prof_1772801012016_ab4261df0849",
+      "created_at": "2026-03-06T12:57:09.648Z",
+      "updated_at": "2026-03-06T12:58:53.417Z"
+    }
+  ]
+}

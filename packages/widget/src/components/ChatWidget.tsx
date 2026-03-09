@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { Bundle, BundleAnswers, BundleItem, ChatMessage, ChatResponse, CommerceActions, ProductCard as ProductCardType } from "../types";
+import type {
+  Bundle,
+  BundleAnswers,
+  BundleItem,
+  ChatMessage,
+  ChatResponse,
+  CommerceActions,
+  ProductCard as ProductCardType
+} from "../types";
 import { ProductCard } from "./ProductCard";
 import BundleFlow from "./BundleFlow";
 import BundleCard from "./BundleCard";
@@ -14,8 +22,17 @@ let msgCounter = 0;
 const nextId = () => `msg-${++msgCounter}`;
 const parseDisplayPrice = (priceValue: string | undefined) =>
   parseFloat(priceValue?.replace(/[^0-9.]/g, "") ?? "0");
-const SIM_ROOM_STORAGE_KEY = "ida_room_id";
+const SIM_ACTIVE_PROJECT_STORAGE_KEY = "ida_active_project_id";
+const LEGACY_SIM_ROOM_STORAGE_KEY = "ida_room_id";
 const LOCAL_TEST_CART_KEY = "ida_local_test_cart";
+const LOCALHOST_DEMO_CART_KEY = "ida_local_cart_v1";
+const SUGGESTION_ICON_MAP: Record<string, string> = {
+  "Tarne info": "🚚",
+  "Tagastamine": "↩️",
+  "Tingimused": "📋",
+  "Makse ja tarne": "💳",
+  "Kontakt": "☎️"
+};
 
 const safeOriginFromUrl = (value: string): string => {
   try {
@@ -26,8 +43,8 @@ const safeOriginFromUrl = (value: string): string => {
 };
 
 const isLocalhostRuntime = (): boolean => {
-  const host = window.location.hostname;
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  const host = window.location.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1" || host.endsWith(".localhost");
 };
 
 interface LocalTestCartLine {
@@ -38,6 +55,15 @@ interface LocalTestCartLine {
   handle?: string;
   permalink?: string;
   image?: string;
+}
+
+interface LocalhostDemoCartLine {
+  id: string;
+  title: string;
+  qty: number;
+  price: number;
+  url: string;
+  image: string;
 }
 
 const toNumericProductId = (value?: string): number | null => {
@@ -61,6 +87,34 @@ const extractSlugFromPermalink = (permalink?: string): string | null => {
   } catch {
     return null;
   }
+};
+
+const toStoreCartUrl = (storeOrigin: string): string => {
+  const origin = safeOriginFromUrl(storeOrigin).replace(/\/+$/g, "");
+  return `${origin}/ostukorv/`;
+};
+
+const toStoreProductUrl = (
+  card: Pick<ProductCardType, "permalink" | "handle">,
+  storeOrigin: string
+): string => {
+  const origin = safeOriginFromUrl(storeOrigin);
+
+  if (card.permalink) {
+    try {
+      const parsed = new URL(card.permalink, origin);
+      return new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, origin).toString();
+    } catch {
+      // Fall back to handle-based local URL below.
+    }
+  }
+
+  const slug = normalizeSlug(card.handle ?? "");
+  if (slug) {
+    return `${origin.replace(/\/+$/g, "")}/toode/${slug}/`;
+  }
+
+  return origin;
 };
 
 const resolveLocalWooProductId = async (card: ProductCardType): Promise<number | null> => {
@@ -121,6 +175,31 @@ const writeLocalTestCart = (items: LocalTestCartLine[]) => {
   }
 };
 
+const readLocalhostDemoCart = (): LocalhostDemoCartLine[] => {
+  try {
+    const raw = localStorage.getItem(LOCALHOST_DEMO_CART_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as LocalhostDemoCartLine[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeLocalhostDemoCart = (items: LocalhostDemoCartLine[]) => {
+  try {
+    localStorage.setItem(LOCALHOST_DEMO_CART_KEY, JSON.stringify(items));
+  } catch {
+    // ignore storage write failures in private mode
+  }
+};
+
+const toNumericPrice = (value: string | undefined): number => {
+  if (!value) return 0;
+  const parsed = Number(String(value).replace(/[^\d,.-]/g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const addItemsToLocalTestCart = (items: Array<Pick<ProductCardType, "id" | "variantId" | "title" | "price" | "handle" | "permalink" | "image">>) => {
   const current = readLocalTestCart();
   const next = [...current];
@@ -147,6 +226,39 @@ const addItemsToLocalTestCart = (items: Array<Pick<ProductCardType, "id" | "vari
   return next;
 };
 
+const addItemsToLocalhostDemoCart = (
+  items: Array<Pick<ProductCardType, "id" | "variantId" | "title" | "price" | "handle" | "permalink" | "image">>,
+  storeOrigin: string
+) => {
+  const current = readLocalhostDemoCart();
+  const next = [...current];
+
+  for (const item of items) {
+    const id = String(item.variantId || item.id || item.handle || item.title).trim();
+    if (!id) continue;
+
+    const existing = next.find((line) => line.id === id);
+    if (existing) {
+      existing.qty += 1;
+      if (!existing.url) existing.url = toStoreProductUrl(item, storeOrigin);
+      if (!existing.image && item.image) existing.image = item.image;
+      if (!existing.price) existing.price = toNumericPrice(item.price);
+      continue;
+    }
+
+    next.push({
+      id,
+      title: item.title,
+      qty: 1,
+      price: toNumericPrice(item.price),
+      url: toStoreProductUrl(item, storeOrigin),
+      image: item.image ?? ""
+    });
+  }
+
+  writeLocalhostDemoCart(next);
+};
+
 export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin }) => {
   const [open, setOpen] = useState(() => {
     try {
@@ -168,9 +280,10 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
   const [bundleFlowActive, setBundleFlowActive] = useState(false);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleResults, setBundleResults] = useState<Bundle[] | null>(null);
-  const [simulatorRoomId, setSimulatorRoomId] = useState<string>(() => {
+  const [actionsDrawerOpen, setActionsDrawerOpen] = useState(false);
+  const [simulatorProjectId, setSimulatorProjectId] = useState<string>(() => {
     try {
-      return localStorage.getItem(SIM_ROOM_STORAGE_KEY) ?? "";
+      return localStorage.getItem(SIM_ACTIVE_PROJECT_STORAGE_KEY) ?? localStorage.getItem(LEGACY_SIM_ROOM_STORAGE_KEY) ?? "";
     } catch {
       return "";
     }
@@ -192,25 +305,49 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
   }, [open]);
 
   useEffect(() => {
-    if (!simulatorRoomId) return;
+    if (!simulatorProjectId) return;
     try {
-      localStorage.setItem(SIM_ROOM_STORAGE_KEY, simulatorRoomId);
+      localStorage.setItem(SIM_ACTIVE_PROJECT_STORAGE_KEY, simulatorProjectId);
     } catch {}
-  }, [simulatorRoomId]);
+  }, [simulatorProjectId]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      const payload = event.data as { type?: string; roomId?: string } | null;
-      if (!payload || payload.type !== "ida-room-created" || !payload.roomId) return;
-      setSimulatorRoomId(payload.roomId);
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: "assistant", text: `Salvestasin su toa (roomId: ${payload.roomId}). Nüüd saad tooteid simulaatoris avada.` }
-      ]);
+      const payload = event.data as { type?: string; roomId?: string; projectId?: string } | null;
+      if (!payload || typeof payload.type !== "string") return;
+
+      const incomingProjectId = String(payload.projectId ?? payload.roomId ?? "").trim();
+      if ((payload.type === "ida-project-created" || payload.type === "ida-room-created") && incomingProjectId) {
+        setSimulatorProjectId(incomingProjectId);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: "assistant",
+            text: `Salvestasin su toa (projectId: ${incomingProjectId}). Nüüd saad tooteid simulaatoris avada.`
+          }
+        ]);
+      }
     };
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key) return;
+
+      if (
+        (event.key === SIM_ACTIVE_PROJECT_STORAGE_KEY || event.key === LEGACY_SIM_ROOM_STORAGE_KEY) &&
+        event.newValue
+      ) {
+        setSimulatorProjectId(event.newValue);
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   useEffect(() => {
@@ -222,6 +359,12 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
     el.style.height = `${nextHeight}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [input, open]);
+
+  useEffect(() => {
+    if (!open || bundleFlowActive || bundleLoading || !!bundleResults) {
+      setActionsDrawerOpen(false);
+    }
+  }, [open, bundleFlowActive, bundleLoading, bundleResults]);
 
   useEffect(() => {
     if (!open || messages.length > 0) return;
@@ -251,68 +394,65 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
 
   const simulatorBaseOrigin = safeOriginFromUrl(apiBase);
 
-  const openRoomWizard = useCallback(
-    (nextSku?: string) => {
-      const url = new URL("/room", simulatorBaseOrigin);
+  const openPlannerHub = useCallback(
+    (nextSku?: string, projectId?: string) => {
+      const url = new URL("/planner", simulatorBaseOrigin);
       if (nextSku) {
         url.searchParams.set("nextSku", nextSku);
       }
-      window.open(url.toString(), "_blank", "noopener,noreferrer");
+      if (projectId) {
+        url.searchParams.set("projectId", projectId);
+      }
+      window.open(url.toString(), "_blank");
     },
     [simulatorBaseOrigin]
   );
 
-  const ensureDefaultRoom = useCallback(async (): Promise<string | null> => {
-    if (simulatorRoomId) return simulatorRoomId;
+  const ensureDefaultProject = useCallback(async (): Promise<string | null> => {
+    if (simulatorProjectId) return simulatorProjectId;
     try {
-      const response = await fetch(`${apiBase}/api/rooms`, {
+      const response = await fetch(`${apiBase}/api/room-projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shape: "rect",
-          width_cm: 420,
-          length_cm: 560,
-          height_cm: 260,
-          openings: [],
-          obstacles: [],
-          visual_refs: []
+          name: "Minu tuba"
         })
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.roomId) {
-        throw new Error(typeof data?.error === "string" ? data.error : "Ruumi loomine ebaõnnestus");
+      if (!response.ok || !data?.project?.id) {
+        throw new Error(typeof data?.error === "string" ? data.error : "Toa projekti loomine ebaõnnestus");
       }
-      const roomId = String(data.roomId);
-      setSimulatorRoomId(roomId);
-      return roomId;
+      const projectId = String(data.project.id);
+      setSimulatorProjectId(projectId);
+      return projectId;
     } catch (error) {
-      console.error("[IDA] Default room creation failed:", error);
+      console.error("[IDA] Default project creation failed:", error);
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: "assistant", text: "Simulaatori jaoks automaatset tuba ei saanud luua. Ava palun 'Loo minu tuba' ja proovi uuesti." }
       ]);
       return null;
     }
-  }, [apiBase, simulatorRoomId]);
+  }, [apiBase, simulatorProjectId]);
 
   const openSimulator = useCallback(
     async (sku?: string) => {
-      const roomId = await ensureDefaultRoom();
-      if (!roomId) {
-        openRoomWizard(sku);
+      const projectId = await ensureDefaultProject();
+      if (!projectId) {
+        openPlannerHub(sku);
         return;
       }
       const url = new URL("/simulator", simulatorBaseOrigin);
-      url.searchParams.set("roomId", roomId);
+      url.searchParams.set("projectId", projectId);
       if (sku) url.searchParams.set("sku", sku);
       window.open(url.toString(), "_blank", "noopener,noreferrer");
     },
-    [ensureDefaultRoom, openRoomWizard, simulatorBaseOrigin]
+    [ensureDefaultProject, openPlannerHub, simulatorBaseOrigin]
   );
 
   const handleViewInSimulator = useCallback(
     (card: ProductCardType) => {
-      const sku = String(card.handle || card.id || card.variantId || "").trim();
+      const sku = String(card.handle || extractSlugFromPermalink(card.permalink) || card.id || card.variantId || "").trim();
       if (!sku) {
         void openSimulator();
         return;
@@ -341,7 +481,11 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
         const res = await fetch(`${apiBase}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text.trim(), cartId, history })
+          body: JSON.stringify({
+            message: text.trim(),
+            cartId,
+            history
+          })
         });
 
         const payload = await res.json().catch(() => ({}));
@@ -384,13 +528,14 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
       setAddingVariant(card.variantId);
 
       if (isLocalhostRuntime()) {
+        const localStoreOrigin = window.location.origin;
+        const localStoreCartUrl = toStoreCartUrl(localStoreOrigin);
         let localProductId = toNumericProductId(card.variantId) ?? toNumericProductId(card.id);
         if (!localProductId) {
           localProductId = await resolveLocalWooProductId(card);
         }
 
         if (localProductId && (await addWooProductToCurrentSiteCart(localProductId))) {
-          const localStoreCartUrl = `${window.location.origin}/ostukorv/`;
           setMessages((prev) => [
             ...prev,
             {
@@ -404,13 +549,13 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
         }
 
         addItemsToLocalTestCart([card]);
-        const localCartUrl = `${window.location.origin}/local-cart`;
+        addItemsToLocalhostDemoCart([card], localStoreOrigin);
         setMessages((prev) => [
           ...prev,
           {
             id: nextId(),
             role: "assistant",
-            text: `${card.title} ei lisandunud kohaliku poe ostukorvi automaatselt. Lisasin test-ostukorvi: ${localCartUrl}`
+            text: `${card.title} ei lisandunud kohaliku poe ostukorvi automaatselt. Lisasin toote localhost demo ostukorvi. Ava: ${localStoreCartUrl}`
           }
         ]);
         setAddingVariant(null);
@@ -430,7 +575,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
       };
 
       const productId = toNumericId(card.variantId) ?? toNumericId(card.id);
-      const productUrl = card.permalink || (card.handle ? `${safeStoreOrigin}/toode/${card.handle}/` : safeStoreOrigin);
+      const productUrl = toStoreProductUrl(card, safeStoreOrigin);
 
       try {
         if (productId && safeStoreOrigin === window.location.origin) {
@@ -589,6 +734,8 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
   const handleAddAllToCart = useCallback(
     async (items: BundleItem[]) => {
       if (isLocalhostRuntime()) {
+        const localStoreOrigin = window.location.origin;
+        const localStoreCartUrl = toStoreCartUrl(localStoreOrigin);
         let added = 0;
         const failed: BundleItem[] = [];
 
@@ -608,7 +755,6 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
         setBundleFlowActive(false);
 
         if (added === items.length) {
-          const localStoreCartUrl = `${window.location.origin}/ostukorv/`;
           setMessages((prev) => [
             ...prev,
             { id: nextId(), role: "assistant", text: `Kõik ${added} toodet lisati kohaliku poe ostukorvi. Ava: ${localStoreCartUrl}` }
@@ -618,14 +764,14 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
 
         if (failed.length > 0) {
           addItemsToLocalTestCart(failed);
-          const localCartUrl = `${window.location.origin}/local-cart`;
+          addItemsToLocalhostDemoCart(failed, localStoreOrigin);
           if (added > 0) {
             setMessages((prev) => [
               ...prev,
               {
                 id: nextId(),
                 role: "assistant",
-                text: `${added} toodet lisati kohaliku poe ostukorvi. ${failed.length} toodet lisasin test-ostukorvi: ${localCartUrl}`
+                text: `${added} toodet lisati kohaliku poe ostukorvi. ${failed.length} toodet lisasin localhost demo ostukorvi. Ava: ${localStoreCartUrl}`
               }
             ]);
             return;
@@ -635,7 +781,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
             {
               id: nextId(),
               role: "assistant",
-              text: `Kohalikku ostukorvi ei õnnestunud automaatselt lisada. Lisasin test-ostukorvi: ${localCartUrl}`
+              text: `Kohalikku ostukorvi ei õnnestunud automaatselt lisada. Lisasin tooted localhost demo ostukorvi. Ava: ${localStoreCartUrl}`
             }
           ]);
           return;
@@ -685,23 +831,23 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
       if (added > 0 && failed.length === 0) {
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: `Kõik ${added} toodet lisatud ostukorvi! Vaata ostukorvi: ${safeStoreOrigin}/ostukorv/` }
+          { id: nextId(), role: "assistant", text: `Kõik ${added} toodet lisatud ostukorvi! Vaata ostukorvi: ${toStoreCartUrl(safeStoreOrigin)}` }
         ]);
       } else if (added > 0) {
         const failedTitles = failed.map((f) => f.title).join(", ");
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: `${added} toodet lisatud. Neid tooteid ei saanud lisada: ${failedTitles}. Vaata otse: ${safeStoreOrigin}/ostukorv/` }
+          { id: nextId(), role: "assistant", text: `${added} toodet lisatud. Neid tooteid ei saanud lisada: ${failedTitles}. Vaata ostukorvi: ${toStoreCartUrl(safeStoreOrigin)}` }
         ]);
       } else {
         // Cross-origin or all failed — open cart/product pages
         for (const item of items) {
-          const url = item.permalink || `${safeStoreOrigin}/toode/${item.handle}/`;
+          const url = toStoreProductUrl(item, safeStoreOrigin);
           window.open(url, "_blank", "noopener,noreferrer");
         }
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: "Avasin kõik tooted uutes aknadesignis. Lisa need käsitsi ostukorvi." }
+          { id: nextId(), role: "assistant", text: "Avasin kõik tooted uutes akendes. Lisa need käsitsi ostukorvi." }
         ]);
       }
     },
@@ -720,6 +866,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
     "Aitan leida tooteid kirjelduse järgi ja vastan poe tingimuste kohta.",
     "Vajuta mu peale ja alustame!"
   ];
+  const showActionsDrawer = !bundleFlowActive && !bundleResults && !welcomeTyping && messages.length > 0;
   const PAUSE_BETWEEN_ROUNDS = 60_000;
   const [bubbleText, setBubbleText] = useState("");
   const [bubbleVisible, setBubbleVisible] = useState(false);
@@ -816,8 +963,13 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           </div>
         </div>
 
+        <div className="gl-ai-warning">
+          <strong>AI-teavitus:</strong> tegu on tehisintellektiga ja vastustes võib esineda vigu.
+        </div>
+
         {bundleFlowActive && !bundleResults && !bundleLoading && (
           <BundleFlow
+            apiBase={apiBase}
             onComplete={handleBundleComplete}
             onCancel={() => setBundleFlowActive(false)}
           />
@@ -873,6 +1025,7 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
                     onAddAll={handleAddAllToCart}
                     onRemoveItem={(itemId) => handleRemoveBundleItem(i, itemId)}
                     onReplaceItem={(itemId, replacement) => handleReplaceBundleItem(i, itemId, replacement)}
+                    onViewInSimulator={(item) => handleViewInSimulator(item)}
                   />
                 ))}
                 <button
@@ -908,34 +1061,82 @@ export const ChatWidget: React.FC<Props> = ({ apiBase, brandName, storeOrigin })
           </div>
         )}
 
-        {actions.freeShippingGap && actions.freeShippingGap > 0 ? (
-          <div className="gl-chips">
-            <button onClick={() => sendMessage("Soovita tooteid")}>{"Veel " + actions.freeShippingGap.toFixed(2) + "\u20AC tasuta tarneni"}</button>
-          </div>
-        ) : null}
+        {showActionsDrawer && (
+          <>
+            <button
+              className={`gl-drawer-toggle${actionsDrawerOpen ? " open" : ""}`}
+              onClick={() => setActionsDrawerOpen((prev) => !prev)}
+              aria-expanded={actionsDrawerOpen}
+              aria-controls="gl-actions-drawer"
+            >
+              {actionsDrawerOpen ? "Sulge valikud" : "Ava valikud"}
+            </button>
 
-        {actions.applyDiscountHint ? (
-          <div className="gl-chips">
-            <button onClick={() => sendMessage("Soovita tooteid")}>{actions.applyDiscountHint}</button>
-          </div>
-        ) : null}
+            <aside id="gl-actions-drawer" className={`gl-actions-drawer${actionsDrawerOpen ? " open" : ""}`}>
+              <div className="gl-actions-drawer-head">
+                <strong>Klienditugi ja valikud</strong>
+                <button onClick={() => setActionsDrawerOpen(false)} aria-label="Sulge valikute sahtel">
+                  ✕
+                </button>
+              </div>
 
-        {suggestions.length > 0 && !welcomeTyping && !bundleFlowActive && !bundleResults && (
-          <div className="gl-chips">
-            {suggestions.map((chip) => (
-              <button key={chip} onClick={() => sendMessage(chip)}>
-                {chip}
-              </button>
-            ))}
-          </div>
-        )}
+              <div className="gl-actions-drawer-scroll">
+                {actions.freeShippingGap && actions.freeShippingGap > 0 ? (
+                  <div className="gl-chips">
+                    <button className="gl-chip-btn gl-chip-promo" onClick={() => sendMessage("Soovita tooteid")}>
+                      {"Veel " + actions.freeShippingGap.toFixed(2) + "\u20AC tasuta tarneni"}
+                    </button>
+                  </div>
+                ) : null}
 
-        {!bundleFlowActive && !bundleResults && !welcomeTyping && messages.length > 0 && (
-          <div className="gl-quick-actions">
-            <button onClick={() => setBundleFlowActive(true)}>🛋️ Koosta komplekt</button>
-            <button onClick={() => openRoomWizard()}>🏠 Loo minu tuba</button>
-            <button onClick={() => void openSimulator()}>🧭 Ava simulaator</button>
-          </div>
+                {actions.applyDiscountHint ? (
+                  <div className="gl-chips">
+                    <button className="gl-chip-btn gl-chip-promo" onClick={() => sendMessage("Soovita tooteid")}>
+                      {actions.applyDiscountHint}
+                    </button>
+                  </div>
+                ) : null}
+
+                {suggestions.length > 0 ? (
+                  <div className="gl-chips gl-chips-compact">
+                    {suggestions.map((chip) => (
+                      <button key={chip} className="gl-chip-btn gl-chip-compact" onClick={() => sendMessage(chip)}>
+                        {SUGGESTION_ICON_MAP[chip] ? <span className="gl-chip-icon">{SUGGESTION_ICON_MAP[chip]}</span> : null}
+                        <span className="gl-chip-label">{chip}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="gl-quick-actions">
+                  <button className="gl-qa-btn" onClick={() => { setActionsDrawerOpen(false); setBundleFlowActive(true); }}>
+                    <span className="gl-qa-icon">🛋️</span>
+                    <span>Koosta komplekt</span>
+                  </button>
+                  <button
+                    className="gl-qa-btn"
+                    onClick={() => {
+                      setActionsDrawerOpen(false);
+                      openPlannerHub(undefined, simulatorProjectId || undefined);
+                    }}
+                  >
+                    <span className="gl-qa-icon">🏠</span>
+                    <span>Loo minu tuba</span>
+                  </button>
+                  <button
+                    className="gl-qa-btn"
+                    onClick={() => {
+                      setActionsDrawerOpen(false);
+                      openPlannerHub(undefined, simulatorProjectId || undefined);
+                    }}
+                  >
+                    <span className="gl-qa-icon">🧭</span>
+                    <span>Ava simulaator</span>
+                  </button>
+                </div>
+              </div>
+            </aside>
+          </>
         )}
 
         {!bundleFlowActive && !bundleLoading && (

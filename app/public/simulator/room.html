@@ -3,85 +3,110 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>IDA Room Wizard</title>
+    <title>IDA Manual Room Planner</title>
     <link rel="stylesheet" href="/simulator-assets/simulator.css" />
   </head>
   <body>
     <main class="shell">
-      <div class="topbar">
+      <header class="topbar">
         <div>
-          <h1 class="title">Minu tuba</h1>
-          <div class="muted">Loo ruum ja ava see simulaatoris</div>
+          <h1 class="title">Manual Room Planner</h1>
+          <div class="muted">Step-by-step ruumi setup enne simulaatorit</div>
         </div>
-        <a class="tag" href="/simulator">Ava simulaator</a>
+        <div class="toolbar">
+          <a class="btn ghost" href="/planner">Tagasi plannerisse</a>
+          <button id="open-simulator-top" class="btn" type="button">Ava simulaator</button>
+        </div>
+      </header>
+
+      <div class="sim-layout">
+        <aside class="panel rooms-sidebar">
+          <div class="rooms-head">
+            <h2 class="section-title">Minu toad</h2>
+            <button id="create-project-btn" class="btn primary" type="button">+ Uus tuba</button>
+          </div>
+          <div id="projects-list" class="projects-list">
+            <div class="hint">Toad laevad...</div>
+          </div>
+        </aside>
+
+        <section class="panel wizard-panel">
+          <div class="wizard-top">
+            <div class="steps" id="steps-indicator">
+              <span class="step-pill" data-step-pill="1">A. Kuju ja mõõdud</span>
+              <span class="step-pill" data-step-pill="2">B. Uksed & aknad</span>
+              <span class="step-pill" data-step-pill="3">C. Fixed elemendid</span>
+              <span class="step-pill" data-step-pill="4">D. Stiil & pinnad</span>
+              <span class="step-pill" data-step-pill="5">E. Salvesta</span>
+            </div>
+          </div>
+
+          <section class="wizard-step active" data-step="1">
+            <h3>Ruumi kuju ja mõõdud</h3>
+            <p class="hint">Lohista seina-käepidemeid või sisesta mõõdud käsitsi.</p>
+            <canvas id="room-shell-canvas" class="planner-canvas" width="1000" height="480"></canvas>
+            <div class="row three">
+              <div>
+                <label for="width-cm">Laius X (cm)</label>
+                <input id="width-cm" type="number" min="120" max="20000" value="420" required />
+              </div>
+              <div>
+                <label for="length-cm">Pikkus Y (cm)</label>
+                <input id="length-cm" type="number" min="120" max="20000" value="560" required />
+              </div>
+              <div>
+                <label for="height-cm">Kõrgus Z (cm)</label>
+                <input id="height-cm" type="number" min="180" max="1000" value="260" required />
+              </div>
+            </div>
+            <div class="metrics-grid">
+              <div class="metric-card"><span>Pindala</span><strong id="room-area-value">23.52 m²</strong></div>
+              <div class="metric-card"><span>Ruumala</span><strong id="room-volume-value">61.15 m³</strong></div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="2">
+            <h3>Uksed ja aknad</h3>
+            <p class="hint">Lisa avad seintele. Offset mõõdetakse seina algusest sentimeetrites.</p>
+            <div class="toolbar">
+              <button id="add-opening-btn" class="btn" type="button">+ Lisa ava</button>
+            </div>
+            <div id="openings-list" class="detected-items"></div>
+          </section>
+
+          <section class="wizard-step" data-step="3">
+            <h3>Fixed elemendid</h3>
+            <p class="hint">Radiaatorid, sambad, nišid ja muud olemasolevad takistused.</p>
+            <div class="toolbar">
+              <button id="add-fixed-btn" class="btn" type="button">+ Lisa element</button>
+            </div>
+            <div id="fixed-list" class="detected-items"></div>
+          </section>
+
+          <section class="wizard-step" data-step="4">
+            <h3>Pindade stiil</h3>
+            <p class="hint">Vali seina toon ja põrandamaterjal, mis kandub simulaatori vaatesse.</p>
+            <div id="theme-editor"></div>
+          </section>
+
+          <section class="wizard-step" data-step="5">
+            <h3>Salvesta tuba</h3>
+            <label for="room-name">Toa nimi</label>
+            <input id="room-name" type="text" maxlength="120" placeholder="Nt Elutuba" />
+            <div class="toolbar">
+              <button id="save-room-btn" class="btn primary" type="button">Salvesta tuba</button>
+              <button id="open-simulator-btn" class="btn" type="button">Ava simulaator</button>
+            </div>
+          </section>
+
+          <div class="wizard-nav">
+            <button id="step-back-btn" class="btn ghost" type="button">Tagasi</button>
+            <button id="step-next-btn" class="btn primary" type="button">Edasi</button>
+          </div>
+
+          <div id="status-box" class="status-box">Vali või loo tuba, siis alusta sammudega.</div>
+        </section>
       </div>
-
-      <section class="panel">
-        <form id="room-form">
-          <div class="wizard-step">
-            <h3>1. Ruumi kuju ja mõõdud</h3>
-            <label for="shape">Ruumi kuju</label>
-            <select id="shape" name="shape">
-              <option value="rect">Ristkülik (MVP)</option>
-            </select>
-            <div class="row">
-              <div>
-                <label for="width-cm">Laius (cm)</label>
-                <input id="width-cm" name="width_cm" type="number" min="120" value="420" required />
-              </div>
-              <div>
-                <label for="length-cm">Pikkus (cm)</label>
-                <input id="length-cm" name="length_cm" type="number" min="120" value="560" required />
-              </div>
-              <div>
-                <label for="height-cm">Kõrgus (cm, optional)</label>
-                <input id="height-cm" name="height_cm" type="number" min="180" value="260" />
-              </div>
-            </div>
-          </div>
-
-          <div class="wizard-step">
-            <h3>2. Uks</h3>
-            <label><input id="door-enabled" type="checkbox" checked /> Lisa uks</label>
-            <div id="door-fields">
-              <div class="row">
-                <div>
-                  <label for="door-wall">Sein</label>
-                  <select id="door-wall">
-                    <option value="north">North</option>
-                    <option value="east">East</option>
-                    <option value="south">South</option>
-                    <option value="west">West</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="door-offset">Offset nurgast (cm)</label>
-                  <input id="door-offset" type="number" min="0" value="120" />
-                </div>
-                <div>
-                  <label for="door-width">Ukse laius (cm)</label>
-                  <input id="door-width" type="number" min="40" value="90" />
-                </div>
-              </div>
-            </div>
-            <div class="hint">MVP: üks uks, vajadusel saad hiljem lisada rohkem.</div>
-          </div>
-
-          <div class="wizard-step">
-            <h3>3. Takistused (optional)</h3>
-            <div id="obstacles-list"></div>
-            <button id="add-obstacle" type="button" class="btn ghost">+ Lisa takistus-kast</button>
-            <div class="hint">Koordinaadid on ruumi sees cm-s (x vasakult, z ülevalt).</div>
-          </div>
-
-          <div class="toolbar">
-            <button type="submit" class="btn primary">Salvesta tuba</button>
-            <button id="open-simulator-btn" type="button" class="btn" disabled>Ava simulaator</button>
-          </div>
-
-          <div id="status-box" class="status-box muted">Täida väljad ja salvesta tuba.</div>
-        </form>
-      </section>
     </main>
 
     <script type="module" src="/simulator-assets/room.js"></script>

@@ -6,6 +6,7 @@ interface BundleCardProps {
   onAddAll: (items: BundleItem[]) => void;
   onRemoveItem: (itemId: string) => void;
   onReplaceItem: (itemId: string, replacement: ProductCard) => void;
+  onViewInSimulator?: (item: ProductCard) => void;
 }
 
 const ROLE_LABEL: Record<BundleItem["roleInBundle"], string> = {
@@ -14,7 +15,7 @@ const ROLE_LABEL: Record<BundleItem["roleInBundle"], string> = {
   aksessuaar: "Aksessuaar"
 };
 
-export default function BundleCard({ bundle, onAddAll, onRemoveItem, onReplaceItem }: BundleCardProps) {
+export default function BundleCard({ bundle, onAddAll, onRemoveItem, onReplaceItem, onViewInSimulator }: BundleCardProps) {
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const [expandedAlternativeRows, setExpandedAlternativeRows] = useState<Set<string>>(new Set());
 
@@ -82,6 +83,15 @@ export default function BundleCard({ bundle, onAddAll, onRemoveItem, onReplaceIt
                   </div>
                   <div className="gl-bundle-item-price">{item.price}</div>
                   <div className="gl-bundle-item-why">{item.whyChosen}</div>
+                  {onViewInSimulator && (
+                    <button
+                      type="button"
+                      className="gl-bundle-view-sim"
+                      onClick={() => onViewInSimulator(item)}
+                    >
+                      Ava simulaatoris
+                    </button>
+                  )}
                   {hasAlternatives && (
                     <button
                       type="button"

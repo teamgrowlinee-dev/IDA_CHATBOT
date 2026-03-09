@@ -35,6 +35,10 @@ export const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
   USE_OPENAI: process.env.USE_OPENAI === "true",
+  PLANNER_V3_ENABLED: process.env.PLANNER_V3_ENABLED !== "false",
+  PLANNER_SCAN_ENABLED: process.env.PLANNER_SCAN_ENABLED === "true",
+  PLANNER_MANUAL_ENABLED: process.env.PLANNER_MANUAL_ENABLED !== "false",
+  PLANNER_ENTRY_MODE: process.env.PLANNER_ENTRY_MODE === "public-nav" ? "public-nav" : "chatbot-only",
   CHATLOG_WEBHOOK_URL: process.env.CHATLOG_WEBHOOK_URL ?? "",
   CHATLOG_WEBHOOK_SECRET: process.env.CHATLOG_WEBHOOK_SECRET ?? ""
 };

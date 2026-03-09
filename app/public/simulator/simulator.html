@@ -3,70 +3,109 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>IDA Room Simulator</title>
+    <title>IDA Planner Simulator V3</title>
     <link rel="stylesheet" href="/simulator-assets/simulator.css" />
   </head>
   <body>
-    <main class="shell">
-      <div class="topbar">
+    <main class="simulator-shell">
+      <header class="topbar">
         <div>
-          <h1 class="title">Room Simulator</h1>
+          <h1 class="title">IDA Simulator</h1>
           <div id="room-meta" class="muted">Laen ruumi...</div>
         </div>
-        <div class="toolbar">
-          <a class="btn ghost" href="/room">Muuda tuba</a>
-          <span id="status-chip" class="tag">Valmis</span>
+        <div class="toolbar wrap">
+          <a class="btn ghost" href="/planner">Planner hub</a>
+          <button id="mode-edit-room" class="btn" type="button">Edit room</button>
+          <button id="mode-furnish" class="btn primary" type="button">Furnish</button>
+          <button id="undo-btn" class="btn ghost" type="button">Undo</button>
+          <button id="redo-btn" class="btn ghost" type="button">Redo</button>
+          <button id="import-cart-btn" class="btn" type="button">Impordi ostukorv</button>
+          <button id="save-scene-btn" class="btn primary" type="button">Salvesta</button>
+          <span id="status-chip" class="tag">Laen...</span>
         </div>
-      </div>
+      </header>
 
-      <div class="grid">
-        <aside class="stack">
-          <section class="panel">
-            <h2 class="section-title">Toote lisamine</h2>
-            <div class="hint">Vali toode chatbotis ja vajuta <strong>Ava simulaatoris</strong>.</div>
-            <div class="hint">Toode lisatakse automaatselt ruumi.</div>
-          </section>
-
-          <section class="panel">
-            <h2 class="section-title">Valitud toode</h2>
-            <div class="toolbar">
-              <button id="rotate-left-btn" class="btn" type="button">Pööra -15°</button>
-              <button id="rotate-right-btn" class="btn" type="button">Pööra +15°</button>
-              <button id="snap-wall-btn" class="btn warn" type="button">Seina äärde</button>
+      <section class="simulator-grid">
+        <aside class="panel catalog-panel">
+          <div class="rooms-head">
+            <h2 class="section-title">Tootekataloog</h2>
+            <button id="new-room-btn" class="btn sm" type="button">+ Uus tuba</button>
+          </div>
+          <div class="row two">
+            <div>
+              <label for="catalog-search">Otsi</label>
+              <input id="catalog-search" type="search" placeholder="Nt diivan, valgusti" />
             </div>
-            <div id="selection-info" class="hint">Vali toode 2D vaates.</div>
-          </section>
+            <div>
+              <label for="catalog-category">Kategooria</label>
+              <select id="catalog-category"></select>
+            </div>
+          </div>
+          <div class="row two">
+            <div>
+              <label for="catalog-sort">Sorteeri</label>
+              <select id="catalog-sort">
+                <option value="relevance">Asjakohasus</option>
+                <option value="price-asc">Hind ↑</option>
+                <option value="price-desc">Hind ↓</option>
+                <option value="name-asc">Nimi A-Z</option>
+              </select>
+            </div>
+            <div>
+              <label for="catalog-per-page">Lehel</label>
+              <select id="catalog-per-page">
+                <option value="12">12</option>
+                <option value="18" selected>18</option>
+                <option value="24">24</option>
+              </select>
+            </div>
+          </div>
+          <div id="catalog-items" class="products"></div>
+          <div class="toolbar wrap">
+            <button id="catalog-prev" class="btn ghost sm" type="button">Eelmine</button>
+            <span id="catalog-page" class="hint">1 / 1</span>
+            <button id="catalog-next" class="btn ghost sm" type="button">Järgmine</button>
+          </div>
 
-          <section class="panel">
-            <h2 class="section-title">Ruumis olevad tooted</h2>
-            <div id="products-list" class="products"></div>
-          </section>
-
-          <section class="panel">
-            <h2 class="section-title">Juhised</h2>
-            <div class="hint">Drag: liiguta toodet 2D vaates.</div>
-            <div class="hint">Rotate: kasuta nuppe, samm 15°.</div>
-            <div class="hint">Collision: seinast välja ei lasta, konflikt annab hoiatuse.</div>
-            <div id="warning-box" class="status-box">Hoiatused kuvatakse siin.</div>
+          <section class="subpanel">
+            <h3 class="section-title">Minu toad</h3>
+            <div id="projects-list" class="projects-list"></div>
           </section>
         </aside>
 
-        <section class="stack">
-          <div class="viz-grid">
+        <section class="panel workspace-panel">
+          <div class="toolbar wrap">
+            <button id="view-split" class="btn primary" type="button">Split view</button>
+            <button id="view-2d" class="btn" type="button">2D</button>
+            <button id="view-3d" class="btn" type="button">3D</button>
+            <span id="selection-info" class="hint">Vali objekt 2D või 3D vaates.</span>
+          </div>
+          <div id="warning-box" class="status-box">Valmis.</div>
+
+          <div id="view-split-wrap" class="viz-grid">
             <div class="stage">
-              <h2 class="section-title">2D floor plan</h2>
-              <canvas id="floor-canvas" width="900" height="560"></canvas>
+              <h2 class="section-title">2D põhiplaan</h2>
+              <canvas id="floor-canvas" width="980" height="620"></canvas>
             </div>
             <div class="stage">
               <h2 class="section-title">3D vaade</h2>
               <div id="scene-3d"></div>
             </div>
           </div>
-          <div class="footer-note">
-            Kui toode ei mahu seina äärde, paigutatakse see ruumi keskele ja kuvatakse hoiatus.
-          </div>
         </section>
-      </div>
+
+        <aside class="panel inspector-panel">
+          <h2 class="section-title">Inspector</h2>
+          <div id="inspector-content" class="inspector-content">
+            <div class="hint">Vali objekt, et muuta mõõte ja toiminguid.</div>
+          </div>
+
+          <section class="subpanel">
+            <h3 class="section-title">Objektid toas</h3>
+            <div id="objects-list" class="products"></div>
+          </section>
+        </aside>
+      </section>
     </main>
 
     <script type="module" src="/simulator-assets/simulator.js"></script>

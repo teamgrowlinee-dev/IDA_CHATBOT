@@ -1,57 +1,66 @@
-import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
-import { OrbitControls } from "https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js";
-import { GLTFLoader } from "https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
-
-const ROOM_STORAGE_KEY = "ida_room_id";
-const WALL_MARGIN_CM = 5;
-const AUTO_SNAP_THRESHOLD_CM = 18;
-const ROTATION_STEP_DEG = 15;
-const CM_TO_M = 0.01;
+import {
+  ACTIVE_PROJECT_STORAGE_KEY,
+  API_BASE,
+  clamp,
+  computeDimensions,
+  fetchJson,
+  readLocalCartLines
+} from "./shared.js";
+import { createCatalogPanel } from "./catalog-panel.js";
+import { createHistoryStore } from "./history-store.js";
+import { createInspectorPanel } from "./inspector-panel.js";
+import { createScene2DEditor } from "./scene-editor-2d.js";
+import { createScene3DEditor } from "./scene-editor-3d.js";
 
 const query = new URLSearchParams(window.location.search);
+const initialSku = String(query.get("sku") ?? "").trim();
 
 const roomMetaEl = document.getElementById("room-meta");
 const statusChipEl = document.getElementById("status-chip");
 const warningBoxEl = document.getElementById("warning-box");
 const selectionInfoEl = document.getElementById("selection-info");
-const productsListEl = document.getElementById("products-list");
-const skuInputEl = document.getElementById("sku-input");
-const addSkuBtn = document.getElementById("add-sku-btn");
-const rotateLeftBtn = document.getElementById("rotate-left-btn");
-const rotateRightBtn = document.getElementById("rotate-right-btn");
-const snapWallBtn = document.getElementById("snap-wall-btn");
-const floorCanvas = document.getElementById("floor-canvas");
-const sceneHost = document.getElementById("scene-3d");
 
-const ctx = floorCanvas.getContext("2d");
-const gltfLoader = new GLTFLoader();
+const projectsListEl = document.getElementById("projects-list");
+const objectsListEl = document.getElementById("objects-list");
+const inspectorEl = document.getElementById("inspector-content");
+
+const newRoomBtn = document.getElementById("new-room-btn");
+const importCartBtn = document.getElementById("import-cart-btn");
+const saveSceneBtn = document.getElementById("save-scene-btn");
+const undoBtn = document.getElementById("undo-btn");
+const redoBtn = document.getElementById("redo-btn");
+const modeEditBtn = document.getElementById("mode-edit-room");
+const modeFurnishBtn = document.getElementById("mode-furnish");
+
+const viewSplitBtn = document.getElementById("view-split");
+const view2dBtn = document.getElementById("view-2d");
+const view3dBtn = document.getElementById("view-3d");
+
+const splitWrap = document.getElementById("view-split-wrap");
+const canvasEl = document.getElementById("floor-canvas");
+const scene3dHost = document.getElementById("scene-3d");
+
+const catalogSearchEl = document.getElementById("catalog-search");
+const catalogCategoryEl = document.getElementById("catalog-category");
+const catalogSortEl = document.getElementById("catalog-sort");
+const catalogPerPageEl = document.getElementById("catalog-per-page");
+const catalogItemsEl = document.getElementById("catalog-items");
+const catalogPrevEl = document.getElementById("catalog-prev");
+const catalogNextEl = document.getElementById("catalog-next");
+const catalogPageEl = document.getElementById("catalog-page");
 
 const state = {
-  room: null,
-  roomId: "",
-  products: [],
-  selectedId: null,
-  dragging: null,
-  three: null
+  projects: [],
+  activeProjectId: "",
+  activeProject: null,
+  roomShell: null,
+  objects: [],
+  selectedId: "",
+  mode: "furnish",
+  view: "split"
 };
 
-const COLORS = ["#d58f5f", "#4ea5d9", "#8fd36f", "#d77ece", "#f2be54", "#6dd3c3", "#d96b72"];
-
-const normalizeForMatch = (value) =>
-  String(value ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const toNumber = (value, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const degToRad = (deg) => (deg * Math.PI) / 180;
+const history = createHistoryStore(100);
 
 const setChip = (text, kind = "default") => {
   statusChipEl.textContent = text;
@@ -61,761 +70,613 @@ const setChip = (text, kind = "default") => {
   if (kind === "err") statusChipEl.classList.add("err");
 };
 
-const setWarning = (message, kind = "warn") => {
+const setWarning = (message, kind = "info") => {
   warningBoxEl.textContent = message;
   warningBoxEl.className = "status-box";
+  if (kind === "ok") warningBoxEl.classList.add("ok");
   if (kind === "warn") warningBoxEl.classList.add("warn");
   if (kind === "err") warningBoxEl.classList.add("err");
 };
 
-const clearWarning = () => setWarning("Hoiatused kuvatakse siin.");
+const currentSelected = () => state.objects.find((item) => item.id === state.selectedId) ?? null;
 
-const currentSelectedProduct = () => state.products.find((product) => product.id === state.selectedId) ?? null;
-
-const getHalfExtentsCm = (product, rotationDeg = product.rotationDeg) => {
-  const theta = degToRad(rotationDeg);
-  const cos = Math.cos(theta);
-  const sin = Math.sin(theta);
-  const hx = Math.abs(cos) * (product.w / 2) + Math.abs(sin) * (product.d / 2);
-  const hz = Math.abs(sin) * (product.w / 2) + Math.abs(cos) * (product.d / 2);
-  return { hx, hz };
-};
-
-const getAABB = (product, pose = product) => {
-  const { hx, hz } = getHalfExtentsCm(product, pose.rotationDeg);
-  return {
-    minX: pose.x - hx,
-    maxX: pose.x + hx,
-    minZ: pose.z - hz,
-    maxZ: pose.z + hz
-  };
-};
-
-const intersectsAABB = (a, b) => !(a.maxX <= b.minX || a.minX >= b.maxX || a.maxZ <= b.minZ || a.minZ >= b.maxZ);
-
-const isWithinRoom = (product, pose) => {
-  if (!state.room) return false;
-  const { hx, hz } = getHalfExtentsCm(product, pose.rotationDeg);
-  return (
-    pose.x - hx >= WALL_MARGIN_CM &&
-    pose.x + hx <= state.room.width_cm - WALL_MARGIN_CM &&
-    pose.z - hz >= WALL_MARGIN_CM &&
-    pose.z + hz <= state.room.length_cm - WALL_MARGIN_CM
-  );
-};
-
-const collidesWithObstacles = (product, pose) => {
-  if (!state.room) return false;
-  const itemBox = getAABB(product, pose);
-  return (state.room.obstacles ?? []).some((obstacle) => {
-    const halfW = obstacle.width_cm / 2;
-    const halfD = obstacle.depth_cm / 2;
-    const obstacleBox = {
-      minX: obstacle.x_cm - halfW,
-      maxX: obstacle.x_cm + halfW,
-      minZ: obstacle.z_cm - halfD,
-      maxZ: obstacle.z_cm + halfD
-    };
-    return intersectsAABB(itemBox, obstacleBox);
-  });
-};
-
-const collidesWithOtherProducts = (product, pose) => {
-  const itemBox = getAABB(product, pose);
-  return state.products.some((other) => {
-    if (other.id === product.id) return false;
-    return intersectsAABB(itemBox, getAABB(other, other));
-  });
-};
-
-const canPlace = (product, pose) =>
-  isWithinRoom(product, pose) && !collidesWithObstacles(product, pose) && !collidesWithOtherProducts(product, pose);
-
-const clampPoseInsideRoom = (product, pose) => {
-  const { hx, hz } = getHalfExtentsCm(product, pose.rotationDeg);
-  const minX = WALL_MARGIN_CM + hx;
-  const maxX = state.room.width_cm - WALL_MARGIN_CM - hx;
-  const minZ = WALL_MARGIN_CM + hz;
-  const maxZ = state.room.length_cm - WALL_MARGIN_CM - hz;
-  return {
-    ...pose,
-    x: Math.min(maxX, Math.max(minX, pose.x)),
-    z: Math.min(maxZ, Math.max(minZ, pose.z))
-  };
-};
-
-const wallRotationDeg = (wall) => {
-  if (wall === "north") return 180;
-  if (wall === "east") return -90;
-  if (wall === "south") return 0;
-  return 90;
-};
-
-const buildWallCandidate = (product, wall, fraction) => {
-  const rotationDeg = wallRotationDeg(wall);
-  const extents = getHalfExtentsCm(product, rotationDeg);
-
-  if (wall === "north" || wall === "south") {
-    const minX = WALL_MARGIN_CM + extents.hx;
-    const maxX = state.room.width_cm - WALL_MARGIN_CM - extents.hx;
-    if (minX > maxX) return null;
-    return {
-      x: minX + (maxX - minX) * fraction,
-      z: wall === "north" ? WALL_MARGIN_CM + extents.hz : state.room.length_cm - WALL_MARGIN_CM - extents.hz,
-      rotationDeg
-    };
+const updateSelectionText = () => {
+  const selected = currentSelected();
+  if (!selected) {
+    selectionInfoEl.textContent = state.mode === "edit-room" ? "Edit room mode aktiivne" : "Vali objekt 2D või 3D vaates.";
+    return;
   }
-
-  const minZ = WALL_MARGIN_CM + extents.hz;
-  const maxZ = state.room.length_cm - WALL_MARGIN_CM - extents.hz;
-  if (minZ > maxZ) return null;
-  return {
-    x: wall === "west" ? WALL_MARGIN_CM + extents.hx : state.room.width_cm - WALL_MARGIN_CM - extents.hx,
-    z: minZ + (maxZ - minZ) * fraction,
-    rotationDeg
-  };
+  selectionInfoEl.textContent = `${selected.title} · ${selected.dims_cm.w}×${selected.dims_cm.d}×${selected.dims_cm.h} cm · ${Math.round(selected.pose.rotation_deg)}°`;
 };
 
-const autoplacePose = (product) => {
-  const fractions = [0.5, 0.18, 0.82];
-  const walls = ["north", "east", "south", "west"];
+const scene2d = createScene2DEditor({
+  canvas: canvasEl,
+  getMode: () => state.mode,
+  getRoomShell: () => state.roomShell,
+  setRoomShellDimensions: (dims) => {
+    state.roomShell.dimensions = computeDimensions(dims.width_cm, dims.length_cm, dims.height_cm);
+    state.roomShell.walls = [
+      { id: "north", length_cm: state.roomShell.dimensions.width_cm },
+      { id: "east", length_cm: state.roomShell.dimensions.length_cm },
+      { id: "south", length_cm: state.roomShell.dimensions.width_cm },
+      { id: "west", length_cm: state.roomShell.dimensions.length_cm }
+    ];
 
-  for (const wall of walls) {
-    for (const fraction of fractions) {
-      const candidate = buildWallCandidate(product, wall, fraction);
-      if (!candidate) continue;
-      if (canPlace(product, candidate)) {
-        return { pose: candidate, warning: "" };
-      }
-    }
-  }
-
-  const centerPose = {
-    x: state.room.width_cm / 2,
-    z: state.room.length_cm / 2,
-    rotationDeg: 0
-  };
-  if (canPlace(product, centerPose)) {
-    return {
-      pose: centerPose,
-      warning: `Toodet "${product.name}" ei saanud seina äärde paigutada. Paigutasin ruumi keskele.`
-    };
-  }
-
-  return {
-    pose: clampPoseInsideRoom(product, centerPose),
-    warning: `Toode "${product.name}" ei mahu praeguste mõõtudega mugavalt ruumi.`
-  };
-};
-
-const nearestWallForPose = (product, pose) => {
-  const { hx, hz } = getHalfExtentsCm(product, pose.rotationDeg);
-  const distances = [
-    { wall: "north", distance: Math.abs(pose.z - (WALL_MARGIN_CM + hz)) },
-    { wall: "south", distance: Math.abs(pose.z - (state.room.length_cm - WALL_MARGIN_CM - hz)) },
-    { wall: "west", distance: Math.abs(pose.x - (WALL_MARGIN_CM + hx)) },
-    { wall: "east", distance: Math.abs(pose.x - (state.room.width_cm - WALL_MARGIN_CM - hx)) }
-  ];
-  distances.sort((a, b) => a.distance - b.distance);
-  return distances[0];
-};
-
-const snapPoseToWall = (product, pose) => {
-  const { wall } = nearestWallForPose(product, pose);
-  const extents = getHalfExtentsCm(product, pose.rotationDeg);
-  if (wall === "north") return { ...pose, z: WALL_MARGIN_CM + extents.hz };
-  if (wall === "south") return { ...pose, z: state.room.length_cm - WALL_MARGIN_CM - extents.hz };
-  if (wall === "west") return { ...pose, x: WALL_MARGIN_CM + extents.hx };
-  return { ...pose, x: state.room.width_cm - WALL_MARGIN_CM - extents.hx };
-};
-
-const maybeAutoSnap = (product, pose) => {
-  const nearest = nearestWallForPose(product, pose);
-  if (nearest.distance > AUTO_SNAP_THRESHOLD_CM) return pose;
-  return snapPoseToWall(product, pose);
-};
-
-const pickColor = (index) => COLORS[index % COLORS.length];
-
-const toThreePosition = (xCm, zCm) => ({
-  x: (xCm - state.room.width_cm / 2) * CM_TO_M,
-  z: (zCm - state.room.length_cm / 2) * CM_TO_M
+    roomMetaEl.textContent = `${state.activeProject?.name || "Minu tuba"} · ${state.roomShell.dimensions.width_cm}×${state.roomShell.dimensions.length_cm}×${state.roomShell.dimensions.height_cm} cm`;
+    renderAll();
+  },
+  getObjects: () => state.objects,
+  setObjects: (nextObjects, trackHistory = true) => {
+    if (trackHistory) history.push(state.objects);
+    state.objects = nextObjects;
+    renderAll();
+  },
+  onSelect: (objectId) => {
+    state.selectedId = objectId;
+    renderAll();
+  },
+  onWarning: setWarning
 });
 
-const syncMeshTransform = (product) => {
-  if (!product.mesh) return;
-  const pos = toThreePosition(product.x, product.z);
-  product.mesh.position.set(pos.x, 0, pos.z);
-  product.mesh.rotation.y = degToRad(product.rotationDeg);
-};
-
-const createFallbackMesh = (product) => {
-  const geometry = new THREE.BoxGeometry(product.w * CM_TO_M, product.h * CM_TO_M, product.d * CM_TO_M);
-  const material = new THREE.MeshStandardMaterial({
-    color: product.color,
-    roughness: 0.75,
-    metalness: 0.08
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = (product.h * CM_TO_M) / 2;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
-};
-
-const fitModelToProductDimensions = (model, product) => {
-  const target = new THREE.Vector3(product.w * CM_TO_M, product.h * CM_TO_M, product.d * CM_TO_M);
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-
-  if (size.x <= 0.0001 || size.y <= 0.0001 || size.z <= 0.0001) {
-    return;
+const scene3d = createScene3DEditor({
+  hostEl: scene3dHost,
+  getRoomShell: () => state.roomShell,
+  getRoomDimensions: () => state.roomShell?.dimensions,
+  getObjects: () => state.objects,
+  onSelect: (objectId) => {
+    state.selectedId = objectId;
+    renderAll();
   }
+});
 
-  model.scale.multiply(new THREE.Vector3(target.x / size.x, target.y / size.y, target.z / size.z));
-
-  const scaledBox = new THREE.Box3().setFromObject(model);
-  const center = scaledBox.getCenter(new THREE.Vector3());
-  model.position.x -= center.x;
-  model.position.z -= center.z;
-  model.position.y -= scaledBox.min.y;
-};
-
-const createProductGroup = async (product) => {
-  const group = new THREE.Group();
-  group.userData.productId = product.id;
-  group.add(createFallbackMesh(product));
-
-  if (product.model_glb_url) {
-    try {
-      const gltf = await gltfLoader.loadAsync(product.model_glb_url);
-      const modelRoot = gltf.scene;
-      fitModelToProductDimensions(modelRoot, product);
-      while (group.children.length > 0) group.remove(group.children[0]);
-      group.add(modelRoot);
-    } catch (error) {
-      console.warn("[simulator] GLB load failed, using fallback mesh:", error);
-      setWarning(`3D mudelit ei saanud laadida tootele "${product.name}", kasutan varukujundit.`, "warn");
+const inspector = createInspectorPanel({
+  hostEl: inspectorEl,
+  getSelected: currentSelected,
+  onUpdate: (objectId, patch) => {
+    history.push(state.objects);
+    state.objects = state.objects.map((item) => {
+      if (item.id !== objectId) return item;
+      return {
+        ...item,
+        title: patch.title,
+        sku: patch.sku,
+        dims_cm: { ...patch.dims_cm },
+        pose: { ...patch.pose },
+        attach: { ...(item.attach || {}), ...(patch.attach || {}) },
+        clearance_cm: patch.clearance_cm,
+        locked: patch.locked
+      };
+    });
+    renderAll();
+    setWarning("Objekti muudatused rakendatud.", "ok");
+  },
+  onDuplicate: (objectId) => {
+    const source = state.objects.find((item) => item.id === objectId);
+    if (!source) return;
+    if (source.locked) {
+      setWarning("Lukustatud objekti ei saa duplikeerida enne lukustuse eemaldamist.", "warn");
+      return;
     }
-  }
 
-  return group;
-};
+    history.push(state.objects);
+    const clone = {
+      ...source,
+      id: `obj_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+      source_key: source.source_key ? `${source.source_key}:dup` : undefined,
+      title: `${source.title} (copy)`,
+      pose: {
+        ...source.pose,
+        x_cm: clamp(source.pose.x_cm + 25, 0, state.roomShell.dimensions.width_cm),
+        z_cm: clamp(source.pose.z_cm + 25, 0, state.roomShell.dimensions.length_cm)
+      }
+    };
+    state.objects = [...state.objects, clone];
+    state.selectedId = clone.id;
+    renderAll();
+    setWarning("Objekt duplikeeritud.", "ok");
+  },
+  onDelete: (objectId) => {
+    const source = state.objects.find((item) => item.id === objectId);
+    if (source?.locked) {
+      setWarning("Lukustatud objekti ei saa eemaldada enne lukustuse eemaldamist.", "warn");
+      return;
+    }
 
-const ensureThreeScene = () => {
-  if (state.three) return state.three;
+    history.push(state.objects);
+    state.objects = state.objects.filter((item) => item.id !== objectId);
+    if (state.selectedId === objectId) {
+      state.selectedId = state.objects[0]?.id || "";
+    }
+    renderAll();
+    setWarning("Objekt eemaldatud.", "warn");
+  },
+  onSwap: (objectId, replacementCard) => {
+    history.push(state.objects);
+    state.objects = state.objects.map((item) => {
+      if (item.id !== objectId) return item;
+      return {
+        ...item,
+        title: replacementCard.title,
+        sku: replacementCard.id,
+        type: "cart",
+        source: "cart",
+        source_key: `${replacementCard.id}:1`
+      };
+    });
+    renderAll();
+    setWarning("Objekt asendatud sarnase tootega.", "ok");
+  },
+  onWarn: setWarning
+});
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(sceneHost.clientWidth || 520, sceneHost.clientHeight || 360);
-  renderer.shadowMap.enabled = true;
-  sceneHost.innerHTML = "";
-  sceneHost.appendChild(renderer.domElement);
+const catalog = createCatalogPanel({
+  searchEl: catalogSearchEl,
+  categoryEl: catalogCategoryEl,
+  sortEl: catalogSortEl,
+  perPageEl: catalogPerPageEl,
+  itemsEl: catalogItemsEl,
+  prevBtn: catalogPrevEl,
+  nextBtn: catalogNextEl,
+  pageEl: catalogPageEl,
+  onAdd: async (card) => {
+    if (!state.activeProjectId) return;
+    try {
+      history.push(state.objects);
+      const payload = await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(state.activeProjectId)}/scene/import-products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines: [{ sku: String(card.id), qty: 1 }] })
+      });
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0f1115);
+      state.activeProject = payload.project;
+      state.objects = Array.isArray(payload.project.scene?.objects)
+        ? payload.project.scene.objects.map((item) => ({ ...item }))
+        : [];
+      state.selectedId = state.objects[state.objects.length - 1]?.id || state.selectedId;
+      renderAll();
+      setWarning("Toode lisati scene'i.", "ok");
+    } catch (error) {
+      setWarning(error instanceof Error ? error.message : "Toote lisamine ebaõnnestus", "err");
+    }
+  },
+  setWarning
+});
 
-  const camera = new THREE.PerspectiveCamera(52, (sceneHost.clientWidth || 520) / (sceneHost.clientHeight || 360), 0.01, 150);
-  camera.position.set(2.8, 3.2, 3.2);
-
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.maxPolarAngle = Math.PI / 2 - 0.06;
-  controls.target.set(0, 0.5, 0);
-
-  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-  const sun = new THREE.DirectionalLight(0xfff6e8, 0.86);
-  sun.position.set(4, 6, 3);
-  sun.castShadow = true;
-
-  scene.add(ambient);
-  scene.add(sun);
-
-  const roomGroup = new THREE.Group();
-  const productsGroup = new THREE.Group();
-  scene.add(roomGroup);
-  scene.add(productsGroup);
-
-  state.three = { renderer, scene, camera, controls, roomGroup, productsGroup };
-
-  const animate = () => {
-    if (!state.three) return;
-    state.three.controls.update();
-    state.three.renderer.render(state.three.scene, state.three.camera);
-    requestAnimationFrame(animate);
-  };
-  animate();
-
-  return state.three;
-};
-
-const renderRoomMeshes = () => {
-  if (!state.room) return;
-  const three = ensureThreeScene();
-  const { roomGroup } = three;
-
-  while (roomGroup.children.length > 0) roomGroup.remove(roomGroup.children[0]);
-
-  const roomWidth = state.room.width_cm * CM_TO_M;
-  const roomDepth = state.room.length_cm * CM_TO_M;
-  const roomHeight = (state.room.height_cm || 260) * CM_TO_M;
-  const wallThickness = 0.03;
-
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(roomWidth, roomDepth),
-    new THREE.MeshStandardMaterial({ color: 0x242c38, roughness: 0.95, metalness: 0.04 })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  roomGroup.add(floor);
-
-  const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x4b4f58, roughness: 0.88, metalness: 0.05 });
-  const northWall = new THREE.Mesh(new THREE.BoxGeometry(roomWidth, roomHeight, wallThickness), wallMaterial);
-  northWall.position.set(0, roomHeight / 2, -roomDepth / 2);
-  const southWall = northWall.clone();
-  southWall.position.z = roomDepth / 2;
-
-  const westWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, roomHeight, roomDepth), wallMaterial);
-  westWall.position.set(-roomWidth / 2, roomHeight / 2, 0);
-  const eastWall = westWall.clone();
-  eastWall.position.x = roomWidth / 2;
-
-  roomGroup.add(northWall, southWall, westWall, eastWall);
-
-  const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x8f4f4f, roughness: 0.65, metalness: 0.08 });
-  for (const obstacle of state.room.obstacles ?? []) {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(obstacle.width_cm * CM_TO_M, (obstacle.height_cm || 60) * CM_TO_M, obstacle.depth_cm * CM_TO_M),
-      obstacleMaterial
-    );
-    const pos = toThreePosition(obstacle.x_cm, obstacle.z_cm);
-    mesh.position.set(pos.x, ((obstacle.height_cm || 60) * CM_TO_M) / 2, pos.z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    roomGroup.add(mesh);
-  }
-};
-
-const addProductToScene = async (product) => {
-  const three = ensureThreeScene();
-  const group = await createProductGroup(product);
-  product.mesh = group;
-  syncMeshTransform(product);
-  three.productsGroup.add(group);
-};
-
-const removeProductFromScene = (productId) => {
-  const three = ensureThreeScene();
-  const toRemove = three.productsGroup.children.find((child) => child.userData.productId === productId);
-  if (toRemove) {
-    three.productsGroup.remove(toRemove);
-  }
-};
-
-const updateSelectionInfo = () => {
-  const selected = currentSelectedProduct();
-  if (!selected) {
-    selectionInfoEl.textContent = "Vali toode 2D vaates.";
-    return;
-  }
-  selectionInfoEl.textContent = `${selected.name} · ${selected.w}×${selected.d}×${selected.h} cm · pööre ${selected.rotationDeg}°`;
-};
-
-const renderProductList = () => {
-  productsListEl.innerHTML = "";
-  if (!state.products.length) {
-    productsListEl.innerHTML = '<div class="hint">Tooteid pole veel lisatud.</div>';
-    updateSelectionInfo();
+const renderObjectsList = () => {
+  if (!state.objects.length) {
+    objectsListEl.innerHTML = '<div class="hint">Objekte pole lisatud.</div>';
     return;
   }
 
-  for (const product of state.products) {
+  objectsListEl.innerHTML = "";
+  for (const item of state.objects) {
     const row = document.createElement("div");
-    row.className = `product-row${state.selectedId === product.id ? " active" : ""}`;
+    row.className = `product-row${state.selectedId === item.id ? " active" : ""}`;
     row.innerHTML = `
-      <div>
-        <div class="product-name">${product.name}</div>
-        <div class="product-meta">${product.sku} · ${Math.round(product.x)}cm, ${Math.round(product.z)}cm</div>
-      </div>
-      <div class="toolbar">
-        <button type="button" class="btn ghost" data-action="select">Vali</button>
-        <button type="button" class="btn ghost" data-action="remove">X</button>
+      <button type="button" class="project-open">${item.title}</button>
+      <div class="project-meta">${item.source === "cart" ? "Ostukorv" : "Olemasolev"} · ${Math.round(item.pose.x_cm)}cm, ${Math.round(item.pose.z_cm)}cm</div>
+      <div class="project-actions">
+        <button type="button" class="btn ghost sm" data-action="select">Vali</button>
+        <button type="button" class="btn ghost sm danger" data-action="remove">X</button>
       </div>
     `;
+
+    row.querySelector(".project-open")?.addEventListener("click", () => {
+      state.selectedId = item.id;
+      renderAll();
+    });
+
     row.querySelector('[data-action="select"]')?.addEventListener("click", () => {
-      state.selectedId = product.id;
-      renderProductList();
-      render2D();
-      updateSelectionInfo();
+      state.selectedId = item.id;
+      renderAll();
     });
+
     row.querySelector('[data-action="remove"]')?.addEventListener("click", () => {
-      removeProductFromScene(product.id);
-      state.products = state.products.filter((item) => item.id !== product.id);
-      if (state.selectedId === product.id) {
-        state.selectedId = state.products[0]?.id ?? null;
+      if (item.locked) {
+        setWarning("Lukustatud objekti ei saa eemaldada enne lukustuse eemaldamist.", "warn");
+        return;
       }
-      renderProductList();
-      render2D();
-      clearWarning();
+      history.push(state.objects);
+      state.objects = state.objects.filter((entry) => entry.id !== item.id);
+      if (state.selectedId === item.id) {
+        state.selectedId = state.objects[0]?.id || "";
+      }
+      renderAll();
+      setWarning("Objekt eemaldatud.", "warn");
     });
-    productsListEl.appendChild(row);
+
+    objectsListEl.appendChild(row);
   }
-  updateSelectionInfo();
 };
 
-const getCanvasTransform = () => {
-  const pad = 26;
-  const width = floorCanvas.width;
-  const height = floorCanvas.height;
-  const scale = Math.min((width - pad * 2) / state.room.width_cm, (height - pad * 2) / state.room.length_cm);
-  const originX = pad;
-  const originY = pad;
-  return { pad, width, height, scale, originX, originY };
-};
-
-const cmToCanvas = (xCm, zCm, t) => ({
-  x: t.originX + xCm * t.scale,
-  y: t.originY + zCm * t.scale
-});
-
-const canvasToCm = (xPx, yPx, t) => ({
-  x: (xPx - t.originX) / t.scale,
-  z: (yPx - t.originY) / t.scale
-});
-
-const drawRotatedRect = (x, y, w, h, angleRad, fill, stroke, lineWidth = 1.4) => {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angleRad);
-  ctx.fillStyle = fill;
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = lineWidth;
-  ctx.beginPath();
-  ctx.rect(-w / 2, -h / 2, w, h);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-};
-
-const render2D = () => {
-  if (!state.room) return;
-
-  const displayWidth = Math.max(420, floorCanvas.clientWidth || 420);
-  const displayHeight = Math.max(320, floorCanvas.clientHeight || 320);
-  if (floorCanvas.width !== Math.round(displayWidth * window.devicePixelRatio) || floorCanvas.height !== Math.round(displayHeight * window.devicePixelRatio)) {
-    floorCanvas.width = Math.round(displayWidth * window.devicePixelRatio);
-    floorCanvas.height = Math.round(displayHeight * window.devicePixelRatio);
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+const renderProjectsList = () => {
+  if (!state.projects.length) {
+    projectsListEl.innerHTML = '<div class="hint">Toad puuduvad.</div>';
+    return;
   }
 
-  ctx.clearRect(0, 0, floorCanvas.clientWidth, floorCanvas.clientHeight);
-  ctx.fillStyle = "#121824";
-  ctx.fillRect(0, 0, floorCanvas.clientWidth, floorCanvas.clientHeight);
+  projectsListEl.innerHTML = "";
+  for (const project of state.projects) {
+    const row = document.createElement("div");
+    row.className = `project-row${project.id === state.activeProjectId ? " active" : ""}`;
+    row.innerHTML = `
+      <button type="button" class="project-open">${project.name || "Minu tuba"}</button>
+      <div class="project-meta">${project.room_shell?.dimensions?.width_cm ?? project.dimensions.width_cm}×${project.room_shell?.dimensions?.length_cm ?? project.dimensions.length_cm} cm</div>
+      <div class="project-actions">
+        <button type="button" class="btn ghost sm" data-action="rename">Nimeta</button>
+        <button type="button" class="btn ghost sm danger" data-action="delete">Kustuta</button>
+      </div>
+    `;
 
-  const t = getCanvasTransform();
-  const roomW = state.room.width_cm * t.scale;
-  const roomD = state.room.length_cm * t.scale;
+    row.querySelector(".project-open")?.addEventListener("click", () => {
+      void selectProject(project.id);
+    });
 
-  ctx.fillStyle = "#1a2330";
-  ctx.strokeStyle = "#9aa5b6";
-  ctx.lineWidth = 2;
-  ctx.fillRect(t.originX, t.originY, roomW, roomD);
-  ctx.strokeRect(t.originX, t.originY, roomW, roomD);
+    row.querySelector('[data-action="rename"]')?.addEventListener("click", async () => {
+      const nextName = window.prompt("Uus nimi:", project.name || "Minu tuba");
+      if (!nextName) return;
+      try {
+        await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(project.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: nextName.trim().slice(0, 120) })
+        });
+        await loadProjects();
+        await selectProject(project.id);
+      } catch (error) {
+        setWarning(error instanceof Error ? error.message : "Nime muutmine ebaõnnestus", "err");
+      }
+    });
 
-  for (const opening of state.room.openings ?? []) {
-    if (opening.type !== "door") continue;
-    const doorColor = "#e6a66d";
-    ctx.fillStyle = doorColor;
-    if (opening.wall === "north" || opening.wall === "south") {
-      const x = t.originX + opening.offset_cm * t.scale;
-      const y = opening.wall === "north" ? t.originY - 3 : t.originY + roomD - 3;
-      ctx.fillRect(x, y, opening.width_cm * t.scale, 6);
-    } else {
-      const x = opening.wall === "west" ? t.originX - 3 : t.originX + roomW - 3;
-      const y = t.originY + opening.offset_cm * t.scale;
-      ctx.fillRect(x, y, 6, opening.width_cm * t.scale);
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", async () => {
+      const ok = window.confirm(`Kustutan toa \"${project.name}\"?`);
+      if (!ok) return;
+      try {
+        await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(project.id)}`, { method: "DELETE" });
+        await loadProjects();
+        if (state.projects.length) {
+          await selectProject(state.projects[0].id);
+        } else {
+          state.activeProject = null;
+          state.activeProjectId = "";
+          state.roomShell = null;
+          state.objects = [];
+          state.selectedId = "";
+          renderAll();
+        }
+      } catch (error) {
+        setWarning(error instanceof Error ? error.message : "Kustutamine ebaõnnestus", "err");
+      }
+    });
+
+    projectsListEl.appendChild(row);
+  }
+};
+
+const setMode = (mode) => {
+  state.mode = mode;
+  modeEditBtn.classList.toggle("primary", mode === "edit-room");
+  modeEditBtn.classList.toggle("ghost", mode !== "edit-room");
+  modeFurnishBtn.classList.toggle("primary", mode === "furnish");
+  modeFurnishBtn.classList.toggle("ghost", mode !== "furnish");
+  updateSelectionText();
+  renderAll();
+};
+
+const setView = (view) => {
+  state.view = view;
+  viewSplitBtn.classList.toggle("primary", view === "split");
+  view2dBtn.classList.toggle("primary", view === "2d");
+  view3dBtn.classList.toggle("primary", view === "3d");
+
+  const stage2d = splitWrap.children[0];
+  const stage3d = splitWrap.children[1];
+
+  if (view === "split") {
+    splitWrap.classList.remove("single-view");
+    stage2d.style.display = "block";
+    stage3d.style.display = "block";
+  } else if (view === "2d") {
+    splitWrap.classList.add("single-view");
+    stage2d.style.display = "block";
+    stage3d.style.display = "none";
+  } else {
+    splitWrap.classList.add("single-view");
+    stage2d.style.display = "none";
+    stage3d.style.display = "block";
+  }
+
+  scene2d.resize();
+  scene3d.resize();
+};
+
+const renderAll = () => {
+  if (!state.roomShell) return;
+
+  roomMetaEl.textContent = `${state.activeProject?.name || "Minu tuba"} · ${state.roomShell.dimensions.width_cm}×${state.roomShell.dimensions.length_cm}×${state.roomShell.dimensions.height_cm} cm`;
+
+  scene2d.render(state.selectedId);
+  scene3d.renderRoom();
+  scene3d.renderObjects();
+  scene3d.highlight(state.selectedId);
+
+  inspector.render();
+  renderProjectsList();
+  renderObjectsList();
+  updateSelectionText();
+
+  undoBtn.disabled = !history.canUndo();
+  redoBtn.disabled = !history.canRedo();
+};
+
+const loadProjects = async () => {
+  const payload = await fetchJson(`${API_BASE}/room-projects`);
+  state.projects = Array.isArray(payload.projects) ? payload.projects : [];
+  renderProjectsList();
+};
+
+const applyProject = (project) => {
+  state.activeProject = project;
+  state.activeProjectId = project.id;
+  localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, project.id);
+
+  state.roomShell = project.room_shell || {
+    shape: "rect",
+    walls: [
+      { id: "north", length_cm: project.dimensions.width_cm },
+      { id: "east", length_cm: project.dimensions.length_cm },
+      { id: "south", length_cm: project.dimensions.width_cm },
+      { id: "west", length_cm: project.dimensions.length_cm }
+    ],
+    dimensions: { ...project.dimensions },
+    openings: [],
+    fixed_elements: [],
+    theme: {
+      style_id: "ida-clean",
+      wall_color: "#f5f3ef",
+      floor_material: "oak",
+      floor_tone: "natural"
     }
-  }
-
-  for (const obstacle of state.room.obstacles ?? []) {
-    const c = cmToCanvas(obstacle.x_cm, obstacle.z_cm, t);
-    drawRotatedRect(
-      c.x,
-      c.y,
-      obstacle.width_cm * t.scale,
-      obstacle.depth_cm * t.scale,
-      0,
-      "rgba(255, 93, 93, 0.28)",
-      "rgba(255, 136, 136, 0.95)",
-      1.2
-    );
-  }
-
-  for (const product of state.products) {
-    const c = cmToCanvas(product.x, product.z, t);
-    const selected = state.selectedId === product.id;
-    drawRotatedRect(
-      c.x,
-      c.y,
-      product.w * t.scale,
-      product.d * t.scale,
-      degToRad(product.rotationDeg),
-      selected ? "rgba(214, 147, 97, 0.66)" : "rgba(110, 188, 255, 0.42)",
-      selected ? "#ffd9b8" : "#8fd4ff",
-      selected ? 2 : 1.4
-    );
-
-    ctx.fillStyle = "#f0f4fb";
-    ctx.font = "12px Segoe UI";
-    ctx.textAlign = "center";
-    ctx.fillText(product.name.slice(0, 22), c.x, c.y + 4);
-  }
-
-  ctx.fillStyle = "#a8b4c6";
-  ctx.font = "12px Segoe UI";
-  ctx.textAlign = "left";
-  ctx.fillText(`Ruum: ${state.room.width_cm} × ${state.room.length_cm} cm`, 10, floorCanvas.clientHeight - 12);
-};
-
-const pointInsideProduct = (product, xCm, zCm) => {
-  const dx = xCm - product.x;
-  const dz = zCm - product.z;
-  const theta = degToRad(-product.rotationDeg);
-  const localX = dx * Math.cos(theta) - dz * Math.sin(theta);
-  const localZ = dx * Math.sin(theta) + dz * Math.cos(theta);
-  return Math.abs(localX) <= product.w / 2 && Math.abs(localZ) <= product.d / 2;
-};
-
-const pickProductAt = (xCm, zCm) => {
-  for (let i = state.products.length - 1; i >= 0; i -= 1) {
-    if (pointInsideProduct(state.products[i], xCm, zCm)) return state.products[i];
-  }
-  return null;
-};
-
-const applyPose = (product, pose) => {
-  product.x = pose.x;
-  product.z = pose.z;
-  product.rotationDeg = ((pose.rotationDeg % 360) + 360) % 360;
-  syncMeshTransform(product);
-};
-
-floorCanvas.addEventListener("pointerdown", (event) => {
-  if (!state.room) return;
-  const rect = floorCanvas.getBoundingClientRect();
-  const t = getCanvasTransform();
-  const point = canvasToCm(event.clientX - rect.left, event.clientY - rect.top, t);
-  const picked = pickProductAt(point.x, point.z);
-  if (!picked) return;
-
-  state.selectedId = picked.id;
-  state.dragging = {
-    productId: picked.id,
-    offsetX: picked.x - point.x,
-    offsetZ: picked.z - point.z
   };
-  renderProductList();
-  render2D();
-  updateSelectionInfo();
-  floorCanvas.setPointerCapture(event.pointerId);
-});
 
-floorCanvas.addEventListener("pointermove", (event) => {
-  if (!state.dragging || !state.room) return;
-  const product = state.products.find((item) => item.id === state.dragging.productId);
-  if (!product) return;
+  state.objects = Array.isArray(project.scene?.objects)
+    ? project.scene.objects.map((item) => ({ ...item }))
+    : [];
 
-  const rect = floorCanvas.getBoundingClientRect();
-  const t = getCanvasTransform();
-  const point = canvasToCm(event.clientX - rect.left, event.clientY - rect.top, t);
-
-  let pose = {
-    x: point.x + state.dragging.offsetX,
-    z: point.z + state.dragging.offsetZ,
-    rotationDeg: product.rotationDeg
-  };
-  pose = maybeAutoSnap(product, pose);
-  pose = clampPoseInsideRoom(product, pose);
-
-  if (canPlace(product, pose)) {
-    applyPose(product, pose);
-    render2D();
-    renderProductList();
-    clearWarning();
-  } else {
-    setWarning("Kokkupõrge või ruumist väljumine. Toode jäi viimasesse sobivasse punkti.", "err");
-  }
-});
-
-floorCanvas.addEventListener("pointerup", (event) => {
-  if (state.dragging) {
-    state.dragging = null;
-    floorCanvas.releasePointerCapture(event.pointerId);
-  }
-});
-
-const rotateSelected = (deltaDeg) => {
-  const selected = currentSelectedProduct();
-  if (!selected) return;
-  const nextPose = {
-    x: selected.x,
-    z: selected.z,
-    rotationDeg: selected.rotationDeg + deltaDeg
-  };
-  if (canPlace(selected, nextPose)) {
-    applyPose(selected, nextPose);
-    render2D();
-    renderProductList();
-    clearWarning();
-  } else {
-    setWarning("Pööramine tekitaks kokkupõrke. Proovi toodet enne nihutada.", "err");
-  }
+  state.selectedId = state.objects[0]?.id || "";
+  history.reset();
+  renderAll();
 };
 
-const snapSelectedToWall = () => {
-  const selected = currentSelectedProduct();
-  if (!selected) return;
-  const snapped = snapPoseToWall(selected, selected);
-  const pose = clampPoseInsideRoom(selected, snapped);
-  if (canPlace(selected, pose)) {
-    applyPose(selected, pose);
-    render2D();
-    renderProductList();
-    clearWarning();
-  } else {
-    setWarning("Seina äärde snap ei õnnestunud: ruumis on takistus või teine toode ees.", "err");
-  }
+const selectProject = async (projectId) => {
+  const payload = await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(projectId)}`);
+  applyProject(payload.project);
 };
 
-const fetchRoom = async (roomId) => {
-  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-  if (!response.ok) {
-    throw new Error("Ruumi ei leitud. Ava /room ja loo uus ruum.");
+const saveAll = async () => {
+  if (!state.activeProjectId || !state.roomShell) {
+    setWarning("Aktiivne tuba puudub", "err");
+    return;
   }
-  return response.json();
-};
-
-const fetchProductMeta = async (sku) => {
-  const response = await fetch(`/api/products/${encodeURIComponent(sku)}`);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(typeof payload?.error === "string" ? payload.error : "Toote meta laadimine ebaõnnestus");
-  }
-  return payload;
-};
-
-const addProductBySku = async (skuInput) => {
-  const sku = String(skuInput ?? "").trim();
-  if (!sku) return;
-  setChip("Laen toodet...", "warn");
 
   try {
-    const meta = await fetchProductMeta(sku);
-    const product = {
-      id: `item_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
-      sku: meta.sku || sku,
-      name: meta.name || sku,
-      category: meta.category || "generic",
-      w: toNumber(meta?.dimensions_cm?.w, 100),
-      d: toNumber(meta?.dimensions_cm?.d, 60),
-      h: toNumber(meta?.dimensions_cm?.h, 90),
-      model_glb_url: typeof meta.model_glb_url === "string" ? meta.model_glb_url : null,
-      x: state.room.width_cm / 2,
-      z: state.room.length_cm / 2,
-      rotationDeg: 0,
-      mesh: null,
-      color: pickColor(state.products.length)
-    };
+    setChip("Salvestan...", "warn");
 
-    const placed = autoplacePose(product);
-    applyPose(product, placed.pose);
-    state.products.push(product);
-    state.selectedId = product.id;
-    await addProductToScene(product);
-
-    renderProductList();
-    render2D();
-    updateSelectionInfo();
-
-    if (placed.warning) setWarning(placed.warning, "warn");
-    else clearWarning();
-
-    setChip("Toode lisatud", "ok");
-  } catch (error) {
-    console.error("[simulator] add product failed:", error);
-    setChip("Viga", "err");
-    setWarning(error instanceof Error ? error.message : "Toote lisamine ebaõnnestus", "err");
-  }
-};
-
-const updateRoomMeta = () => {
-  if (!state.room) return;
-  roomMetaEl.textContent = `roomId: ${state.roomId} · ${state.room.width_cm}×${state.room.length_cm}cm · kõrgus ${state.room.height_cm || 260}cm`;
-};
-
-const initializeRoom = async () => {
-  const fromQuery = query.get("roomId")?.trim() ?? "";
-  const fromStorage = localStorage.getItem(ROOM_STORAGE_KEY)?.trim() ?? "";
-  state.roomId = fromQuery || fromStorage;
-  if (!state.roomId) {
-    throw new Error("roomId puudub. Ava /room ja loo ruum.");
-  }
-
-  localStorage.setItem(ROOM_STORAGE_KEY, state.roomId);
-  state.room = await fetchRoom(state.roomId);
-  updateRoomMeta();
-  renderRoomMeshes();
-  render2D();
-  clearWarning();
-};
-
-const attachEvents = () => {
-  if (addSkuBtn && skuInputEl) {
-    addSkuBtn.addEventListener("click", () => addProductBySku(skuInputEl.value));
-    skuInputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        addProductBySku(skuInputEl.value);
-      }
+    await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(state.activeProjectId)}/room-shell`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dimensions: {
+          width_cm: state.roomShell.dimensions.width_cm,
+          length_cm: state.roomShell.dimensions.length_cm,
+          height_cm: state.roomShell.dimensions.height_cm
+        },
+        openings: state.roomShell.openings,
+        fixed_elements: state.roomShell.fixed_elements,
+        theme: state.roomShell.theme
+      })
     });
-  }
-  rotateLeftBtn.addEventListener("click", () => rotateSelected(-ROTATION_STEP_DEG));
-  rotateRightBtn.addEventListener("click", () => rotateSelected(ROTATION_STEP_DEG));
-  snapWallBtn.addEventListener("click", () => snapSelectedToWall());
 
-  window.addEventListener("resize", () => {
-    if (!state.room) return;
-    render2D();
-    if (state.three) {
-      const width = sceneHost.clientWidth || 520;
-      const height = sceneHost.clientHeight || 360;
-      state.three.camera.aspect = width / height;
-      state.three.camera.updateProjectionMatrix();
-      state.three.renderer.setSize(width, height);
-    }
-  });
+    const payload = await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(state.activeProjectId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scene: {
+          objects: state.objects
+        }
+      })
+    });
+
+    state.activeProject = payload.project;
+    await loadProjects();
+    renderProjectsList();
+
+    setChip("Salvestatud", "ok");
+    setWarning("Planneri seis salvestatud.", "ok");
+  } catch (error) {
+    setChip("Viga", "err");
+    setWarning(error instanceof Error ? error.message : "Salvestamine ebaõnnestus", "err");
+  }
+};
+
+const importCart = async () => {
+  if (!state.activeProjectId) {
+    setWarning("Aktiivne tuba puudub", "err");
+    return;
+  }
+
+  const cartLines = readLocalCartLines();
+  if (!cartLines.length) {
+    setWarning("Lokaalne ostukorv on tühi (ida_local_cart_v1)", "warn");
+    return;
+  }
+
+  try {
+    history.push(state.objects);
+    setChip("Impordin...", "warn");
+    const payload = await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(state.activeProjectId)}/scene/import-cart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cartLines })
+    });
+
+    state.activeProject = payload.project;
+    state.objects = Array.isArray(payload.project.scene?.objects)
+      ? payload.project.scene.objects.map((item) => ({ ...item }))
+      : [];
+
+    state.selectedId = state.objects[state.objects.length - 1]?.id || state.selectedId;
+
+    renderAll();
+    await loadProjects();
+    setChip("Valmis", "ok");
+    setWarning(`${payload.addedCount ?? 0} objekti imporditi ostukorvist.`, "ok");
+  } catch (error) {
+    setChip("Viga", "err");
+    setWarning(error instanceof Error ? error.message : "Ostukorvi import ebaõnnestus", "err");
+  }
+};
+
+const maybeImportInitialSku = async () => {
+  if (!initialSku || !state.activeProjectId) return;
+
+  const clearSkuFromUrl = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("sku");
+    window.history.replaceState({}, "", url.toString());
+  };
+
+  const alreadyInScene = state.objects.some((item) => String(item.sku ?? "").trim() === initialSku);
+  if (alreadyInScene) {
+    clearSkuFromUrl();
+    return;
+  }
+
+  try {
+    history.push(state.objects);
+    const payload = await fetchJson(`${API_BASE}/room-projects/${encodeURIComponent(state.activeProjectId)}/scene/import-products`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lines: [{ sku: initialSku, qty: 1 }] })
+    });
+
+    state.activeProject = payload.project;
+    state.objects = Array.isArray(payload.project.scene?.objects)
+      ? payload.project.scene.objects.map((item) => ({ ...item }))
+      : [];
+    state.selectedId = state.objects[state.objects.length - 1]?.id || state.selectedId;
+    renderAll();
+    setWarning("Chatbotist valitud toode lisati ruumi.", "ok");
+  } catch (error) {
+    setWarning(error instanceof Error ? error.message : "Valitud toote import ebaõnnestus", "warn");
+  } finally {
+    clearSkuFromUrl();
+  }
+};
+
+const undo = () => {
+  const snapshot = history.undo(state.objects);
+  if (!snapshot) return;
+  state.objects = snapshot;
+  if (state.selectedId && !state.objects.some((item) => item.id === state.selectedId)) {
+    state.selectedId = state.objects[0]?.id || "";
+  }
+  renderAll();
+};
+
+const redo = () => {
+  const snapshot = history.redo(state.objects);
+  if (!snapshot) return;
+  state.objects = snapshot;
+  if (state.selectedId && !state.objects.some((item) => item.id === state.selectedId)) {
+    state.selectedId = state.objects[0]?.id || "";
+  }
+  renderAll();
+};
+
+const resolveInitialProject = async () => {
+  const queryProjectId = query.get("projectId")?.trim() ?? "";
+  const queryLegacyRoomId = query.get("roomId")?.trim() ?? "";
+
+  if (queryLegacyRoomId && !queryProjectId) {
+    const migrated = await fetchJson(`${API_BASE}/room-projects/from-room/${encodeURIComponent(queryLegacyRoomId)}`, {
+      method: "POST"
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.delete("roomId");
+    url.searchParams.set("projectId", migrated.project.id);
+    window.history.replaceState({}, "", url.toString());
+    return migrated.project.id;
+  }
+
+  if (queryProjectId) return queryProjectId;
+  const stored = localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY)?.trim() ?? "";
+  if (stored) return stored;
+  return state.projects[0]?.id ?? "";
 };
 
 const bootstrap = async () => {
   setChip("Laen...", "warn");
-  attachEvents();
+
+  modeEditBtn.addEventListener("click", () => setMode("edit-room"));
+  modeFurnishBtn.addEventListener("click", () => setMode("furnish"));
+
+  viewSplitBtn.addEventListener("click", () => setView("split"));
+  view2dBtn.addEventListener("click", () => setView("2d"));
+  view3dBtn.addEventListener("click", () => setView("3d"));
+
+  importCartBtn.addEventListener("click", () => {
+    void importCart();
+  });
+
+  saveSceneBtn.addEventListener("click", () => {
+    void saveAll();
+  });
+
+  undoBtn.addEventListener("click", undo);
+  redoBtn.addEventListener("click", redo);
+
+  newRoomBtn.addEventListener("click", () => {
+    window.location.href = "/room";
+  });
+
+  window.addEventListener("resize", () => {
+    scene2d.resize();
+    scene3d.resize();
+  });
 
   try {
-    await initializeRoom();
-    setChip("Valmis", "ok");
-    const deepSku = query.get("sku")?.trim();
-    if (deepSku) {
-      if (skuInputEl) skuInputEl.value = deepSku;
-      await addProductBySku(deepSku);
-    } else {
-      setWarning("Vali toode chatbotis ja vajuta 'Ava simulaatoris', et see ruumi lisada.", "warn");
+    await fetchJson(`${API_BASE}/planner/config`);
+    await fetchJson(`${API_BASE}/profile`);
+    await loadProjects();
+
+    const preferredId = await resolveInitialProject();
+    if (!preferredId) {
+      setChip("Puudub", "warn");
+      setWarning("Toad puuduvad. Ava planner ja loo uus tuba.", "warn");
+      return;
     }
+
+    const found = state.projects.find((project) => project.id === preferredId);
+    if (!found && state.projects.length > 0) {
+      await selectProject(state.projects[0].id);
+    } else {
+      await selectProject(preferredId);
+    }
+
+    await maybeImportInitialSku();
+
+    await catalog.init();
+
+    setMode("furnish");
+    setView("split");
+    setChip("Valmis", "ok");
+    setWarning("Vali toode kataloogist või impordi ostukorv.", "ok");
   } catch (error) {
-    console.error("[simulator] init failed:", error);
+    console.error("[simulator] bootstrap error:", error);
     setChip("Viga", "err");
     setWarning(error instanceof Error ? error.message : "Simulaatori avamine ebaõnnestus", "err");
-    roomMetaEl.innerHTML = 'Ruumi ei saanud laadida. <a href="/room">Loo uus tuba</a>.';
   }
 };
 
-bootstrap();
+void bootstrap();

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="et">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IDA Planner V3</title>
+    <link rel="stylesheet" href="/simulator-assets/simulator.css" />
+  </head>
+  <body>
+    <main class="planner-shell">
+      <section class="planner-hero panel">
+        <div>
+          <p class="eyebrow">IDA Planner</p>
+          <h1>Loo oma ruum ja sisusta see 3D-s</h1>
+          <p class="muted max-720">
+            IKEA-laadse tööriistaloogikaga planner: vali tuba, sea mõõdud, ava simulaator ja paiguta tooted.
+            360 skänn on alles, kuid selles väljalaskes peidetud.
+          </p>
+          <div class="toolbar wrap">
+            <button id="planner-new-room" class="btn primary" type="button">Alusta uut tuba</button>
+            <button id="planner-continue" class="btn" type="button">Jätka viimast</button>
+          </div>
+        </div>
+        <div class="planner-cards">
+          <article id="manual-card" class="planner-card active">
+            <h3>Manual Room Planner</h3>
+            <p>Käsitsi mõõdud, seinad, avad, fixed elemendid ja stiilid.</p>
+            <button id="planner-open-manual" class="btn primary" type="button">Ava manual planner</button>
+          </article>
+          <article id="scan-card" class="planner-card disabled">
+            <h3>AI 360 Room Scan</h3>
+            <p>Kaameraskänn + AI rekonstruktsioon.</p>
+            <span id="scan-badge" class="badge">Varsti saadaval</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel planner-rooms">
+        <div class="rooms-head">
+          <h2 class="section-title">Minu toad</h2>
+          <span id="planner-status" class="tag">Laen...</span>
+        </div>
+        <div id="planner-projects" class="projects-list">
+          <div class="hint">Toad laevad...</div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/simulator-assets/planner.js"></script>
+  </body>
+</html>

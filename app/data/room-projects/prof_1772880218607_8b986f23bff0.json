@@ -1,0 +1,69 @@
+{
+  "profile_id": "prof_1772880218607_8b986f23bff0",
+  "projects": [
+    {
+      "name": "Test terrass",
+      "room_type": "outdoor",
+      "shape": "rect",
+      "dimensions": {
+        "width_cm": 400,
+        "length_cm": 500,
+        "height_cm": 250,
+        "area_m2": 20,
+        "volume_m3": 50
+      },
+      "room_shell": {
+        "shape": "rect",
+        "walls": [
+          {
+            "id": "north",
+            "length_cm": 400
+          },
+          {
+            "id": "east",
+            "length_cm": 500
+          },
+          {
+            "id": "south",
+            "length_cm": 400
+          },
+          {
+            "id": "west",
+            "length_cm": 500
+          }
+        ],
+        "dimensions": {
+          "width_cm": 400,
+          "length_cm": 500,
+          "height_cm": 250,
+          "area_m2": 20,
+          "volume_m3": 50
+        },
+        "openings": [],
+        "fixed_elements": [],
+        "theme": {
+          "style_id": "ida-clean",
+          "wall_color": "#f5f3ef",
+          "floor_material": "oak",
+          "floor_tone": "natural"
+        }
+      },
+      "scan": {
+        "frames": [],
+        "coverage_status": "pending"
+      },
+      "analysis": {
+        "analysis_status": "idle",
+        "summary": "",
+        "detected_items": []
+      },
+      "scene": {
+        "objects": []
+      },
+      "id": "proj_1772880218615_3ba0a2de",
+      "profile_id": "prof_1772880218607_8b986f23bff0",
+      "created_at": "2026-03-07T10:43:38.612Z",
+      "updated_at": "2026-03-07T10:43:38.612Z"
+    }
+  ]
+}
