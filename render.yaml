@@ -9,3 +9,13 @@ services:
         value: production
       - key: PORT
         value: 8788
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_FAST_MODEL
+        value: claude-3-5-haiku-20241022
+      - key: ANTHROPIC_QUALITY_MODEL
+        value: claude-sonnet-4-20250514
+      - key: USE_OPENAI
+        value: false
+      - key: OPENAI_API_KEY
+        sync: false

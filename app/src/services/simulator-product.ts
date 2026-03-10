@@ -1,4 +1,5 @@
 import { fetchProductCatalog } from "./storefront-tools.js";
+import { findSimulatorModelMatch } from "./simulator-models.js";
 import type { ProductDimensionsCm, SimulatorProductMeta } from "../types/simulator.js";
 
 interface CatalogProductLike {
@@ -18,8 +19,6 @@ const normalizeForMatch = (value: string): string =>
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-
-const DEFAULT_MODEL_GLB = "https://threejs.org/examples/models/gltf/DamagedHelmet/glTF-Binary/DamagedHelmet.glb";
 
 const CATEGORY_DEFAULT_DIMS: Record<string, ProductDimensionsCm> = {
   sofa: { w: 220, d: 95, h: 85 },
@@ -172,6 +171,9 @@ export const resolveSimulatorProductMeta = async (sku: string): Promise<Simulato
   const product = findCatalogProduct(catalog, sku);
   if (!product) return null;
 
+  const modelMatch = await findSimulatorModelMatch(`${product.title} ${product.handle}`);
+  if (!modelMatch) return null;
+
   const category = inferCategory(product);
   const dimensions = parseDimensions(product, category);
 
@@ -180,6 +182,6 @@ export const resolveSimulatorProductMeta = async (sku: string): Promise<Simulato
     name: product.title,
     category,
     dimensions_cm: dimensions,
-    model_glb_url: DEFAULT_MODEL_GLB
+    model_glb_url: modelMatch.url
   };
 };

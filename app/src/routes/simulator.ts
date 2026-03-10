@@ -569,6 +569,10 @@ const importLinesIntoScene = async (
     const meta =
       (await resolveSimulatorProductMeta(line.sku)) ??
       (line.title ? await resolveSimulatorProductMeta(line.title).catch(() => null) : null);
+    if (!meta) {
+      continue;
+    }
+
     const skuKey = String(line.sku).trim();
     const baseIndex = nextIndexBySku.get(skuKey) ?? 0;
     let createdForLine = 0;
@@ -581,15 +585,15 @@ const importLinesIntoScene = async (
       createdForLine += 1;
       nextIndexBySku.set(skuKey, Math.max(nextIndexBySku.get(skuKey) ?? 0, nextIndex));
 
-      const dims = meta?.dimensions_cm ?? inferCartDims(line.title ?? line.sku);
+      const dims = meta.dimensions_cm;
       const pose = findFreePose([...existing, ...added], dims, project.room_shell.dimensions);
       added.push({
         id: createObjectId("cart"),
         source: "cart",
         source_key: sourceKey,
         title:
-          quantity > 1 ? `${meta?.name ?? line.title ?? line.sku} ${nextIndex}` : meta?.name ?? line.title ?? line.sku,
-        type: meta?.category ?? "cart",
+          quantity > 1 ? `${meta.name} ${nextIndex}` : meta.name,
+        type: meta.category,
         sku: skuKey,
         dims_cm: dims,
         pose,

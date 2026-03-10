@@ -8,9 +8,13 @@ const router = Router();
 router.get("/chat/health", (_req, res) => {
   res.json({
     ok: true,
-    useOpenAI: env.USE_OPENAI,
+    provider: env.ANTHROPIC_API_KEY ? "anthropic" : env.USE_OPENAI && env.OPENAI_API_KEY ? "openai" : "none",
+    useAI: env.USE_AI,
+    hasAnthropicKey: Boolean(env.ANTHROPIC_API_KEY),
+    anthropicFastModel: env.ANTHROPIC_FAST_MODEL,
+    anthropicQualityModel: env.ANTHROPIC_QUALITY_MODEL,
     hasOpenAIKey: Boolean(env.OPENAI_API_KEY),
-    model: env.OPENAI_MODEL
+    openAIModel: env.OPENAI_MODEL
   });
 });
 

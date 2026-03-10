@@ -45,10 +45,6 @@ const normalizeText = (value: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-const formatNaturalList = (values: string[]): string => {
-  if (values.length <= 1) return values[0] ?? "";
-  return `${values.slice(0, -1).join(", ")} või ${values[values.length - 1]}`;
-};
 
 const tokenMatch = (left: string, right: string): boolean => {
   if (!left || !right) return false;
@@ -79,8 +75,6 @@ const optionMatchesMessage = (message: string, option: CategoryClarificationOpti
   });
 };
 
-const hasSpecificSubcategoryMention = (message: string, options: CategoryClarificationOption[]): boolean =>
-  options.some((option) => optionMatchesMessage(message, option));
 
 const findPendingCategoryClarification = async (
   history: Array<{ role: "user" | "assistant"; text: string }>
@@ -120,7 +114,7 @@ const resolveCategoryClarificationReply = (
 export const runChat = async (input: ChatInput): Promise<ChatResponse> => {
   if (input.message.trim().toLowerCase() === "/debug") {
     return {
-      message: `debug: useOpenAI=${env.USE_OPENAI} hasKey=${Boolean(env.OPENAI_API_KEY)} model=${env.OPENAI_MODEL}`,
+      message: `debug: provider=${env.ANTHROPIC_API_KEY ? "anthropic" : env.USE_OPENAI ? "openai" : "none"} fastModel=${env.ANTHROPIC_FAST_MODEL}`,
       cards: [],
       suggestions: chips,
       actions: {}
@@ -128,32 +122,19 @@ export const runChat = async (input: ChatInput): Promise<ChatResponse> => {
   }
 
   const history = input.history ?? [];
+
+  // Intent — rule-based first, AI refines only when needed (saves latency)
   let intent = detectIntent(input.message);
-  if (env.USE_OPENAI && env.OPENAI_API_KEY) {
-    const refined = await classifyIntentWithContext({
-      userMessage: input.message,
-      history
-    });
+  if (env.USE_AI && intent === "product_reco") {
+    // Rule-based already caught product intent — skip extra AI call
+  } else if (env.USE_AI) {
+    const refined = await classifyIntentWithContext({ userMessage: input.message, history });
     if (refined?.intent) intent = refined.intent;
   }
 
-  let effectiveQuery = input.message;
-  let constraints = parseConstraints(effectiveQuery);
-  const pendingCategoryClarification = await findPendingCategoryClarification(history);
-  const selectedCategoryOption = pendingCategoryClarification
-    ? resolveCategoryClarificationReply(input.message, pendingCategoryClarification.plan.options)
-    : null;
-
-  if (pendingCategoryClarification && selectedCategoryOption) {
-    effectiveQuery = `${pendingCategoryClarification.baseQuery} ${selectedCategoryOption.queryToken}`;
-    constraints = parseConstraints(effectiveQuery);
-    intent = "product_reco";
-  }
-
+  // Escalation
   if (/pahane|vihane|petetud|fraud|chargeback|kadunud pakk|makse probleem/.test(input.message.toLowerCase())) {
-    const escalation = await handoff({
-      summary: `Klient vajab kiiret tuge: ${input.message}`
-    });
+    const escalation = await handoff({ summary: `Klient vajab kiiret tuge: ${input.message}` });
     return {
       message: `Võtan selle kohe klienditoele edasi. ${escalation.nextStep}`,
       cards: [],
@@ -169,19 +150,12 @@ export const runChat = async (input: ChatInput): Promise<ChatResponse> => {
       contextSummary: faq.answer,
       fallback: `${faq.answer} Vaata ka: ${faq.recommendedLink ?? faq.links.contact}`
     });
-
-    return {
-      message: text,
-      cards: [],
-      suggestions: chips,
-      actions: {}
-    };
+    return { message: text, cards: [], suggestions: chips, actions: {} };
   }
 
   if (intent === "greeting") {
     return {
-      message:
-        "Tere! Olen IDA Sisustuspood assistent. Aitan tarne, tagastuse, tingimuste ja kontakti küsimustega ning leian sulle sobivaid tooteid.",
+      message: "Tere! Olen IDA Sisustuspood assistent. Aitan tarne, tagastuse ja kontakti küsimustega ning leian sulle sobivaid tooteid.",
       cards: [],
       suggestions: chips,
       actions: {}
@@ -191,57 +165,38 @@ export const runChat = async (input: ChatInput): Promise<ChatResponse> => {
   if (intent === "order_help") {
     const text = await generateGeneralChatReply({
       userText: input.message,
-      fallback:
-        "Aitan hea meelega. Kui küsimus on tellimuse või makse kohta, kirjuta palun tellimuse number ja kontakt või kirjuta otse: info@idastuudio.ee."
+      fallback: "Aitan hea meelega. Kui küsimus on tellimuse või makse kohta, kirjuta palun tellimuse number ja kontakt või kirjuta otse: info@idastuudio.ee."
     });
-
-    return {
-      message: text,
-      cards: [],
-      suggestions: chips,
-      actions: {}
-    };
+    return { message: text, cards: [], suggestions: chips, actions: {} };
   }
 
   if (intent === "smalltalk") {
     const text = await generateGeneralChatReply({
       userText: input.message,
-      fallback:
-        "Selge! Kas soovid abi tarne/tagastuse küsimuses või otsid mõnda toodet? Tootesoovituseks kirjelda palun stiili, toote tüüpi ja eelarvet."
+      fallback: "Selge! Kas soovid abi tarne/tagastuse küsimuses või otsid mõnda toodet?"
     });
-
     return { message: text, cards: [], suggestions: chips, actions: {} };
   }
 
-  if (
-    intent === "product_reco" &&
-    !selectedCategoryOption
-  ) {
-    const categoryPlan = await planCategoryClarification({
-      query: effectiveQuery,
-      productTypes: constraints.productTypes
-    });
+  // ── Product recommendation — otse otsing, ilma vaheküsimusteta ──
+  let effectiveQuery = input.message;
+  let constraints = parseConstraints(effectiveQuery);
 
-    if (categoryPlan && !hasSpecificSubcategoryMention(effectiveQuery, categoryPlan.options)) {
-      const optionLabels = categoryPlan.options.map((option) => option.label);
-      return {
-        message: `Et leiaksin täpsema vaste, täpsusta palun kategooria (${categoryPlan.mainCategoryLabel}): ${formatNaturalList(
-          optionLabels.map((label) => label.toLowerCase())
-        )}.`,
-        cards: [],
-        suggestions: optionLabels.slice(0, 10),
-        actions: {}
-      };
-    }
+  // Vaata kas eelmine sõnum oli kategooria täpsustuse küsimus ja vastati sellele
+  const pendingClarification = await findPendingCategoryClarification(history);
+  const selectedOption = pendingClarification
+    ? resolveCategoryClarificationReply(input.message, pendingClarification.plan.options)
+    : null;
+
+  if (pendingClarification && selectedOption) {
+    effectiveQuery = `${pendingClarification.baseQuery} ${selectedOption.queryToken}`;
+    constraints = parseConstraints(effectiveQuery);
   }
 
   const cards = await recommend_products({
     intent,
-    constraints: {
-      ...constraints,
-      query: effectiveQuery
-    },
-    limit: 4
+    constraints: { ...constraints, query: effectiveQuery },
+    limit: 3
   });
 
   let cartId = input.cartId ?? "";
@@ -258,14 +213,20 @@ export const runChat = async (input: ChatInput): Promise<ChatResponse> => {
   let productSummary: string | undefined;
 
   if (cards.length > 0) {
-    message = "Siin on minu soovitused just sulle:";
-    const summary = await generateProductSetSummary({
-      userMessage: effectiveQuery,
-      products: cards.map((c) => ({ title: c.title, reason: c.reason }))
-    });
-    if (summary) productSummary = summary;
+    const hasAlternatives = cards.some((card) => (card.alternatives?.length ?? 0) > 0);
+    message = hasAlternatives
+      ? "Siin on minu soovitused just sulle. Iga toote alt saad vajadusel vaadata alternatiive."
+      : "Siin on minu soovitused just sulle:";
+
+    if (cards.length >= 2 && effectiveQuery.trim().split(/\s+/).length >= 5) {
+      const summary = await generateProductSetSummary({
+        userMessage: effectiveQuery,
+        products: cards.map((c) => ({ title: c.title, reason: c.reason }))
+      });
+      if (summary) productSummary = summary;
+    }
   } else {
-    message = "Kahjuks ei leidnud praegu sobivaid tooteid. Proovi palun kirjeldada täpsemalt (nt toote tüüp, stiil ja eelarve).";
+    message = "Kahjuks ei leidnud praegu sobivaid tooteid. Proovi kirjeldada täpsemalt (nt stiil, värv ja eelarve).";
   }
 
   return {

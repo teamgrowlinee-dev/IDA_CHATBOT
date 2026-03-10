@@ -87,9 +87,11 @@ export default function BundleCard({ bundle, onAddAll, onRemoveItem, onReplaceIt
                     <button
                       type="button"
                       className="gl-bundle-view-sim"
+                      disabled={!item.simulatorAvailable}
                       onClick={() => onViewInSimulator(item)}
+                      title={item.simulatorAvailable ? undefined : "Sellel tootel pole veel 3D mudelit"}
                     >
-                      Ava simulaatoris
+                      {item.simulatorAvailable ? "Ava simulaatoris" : "3D mudel puudub"}
                     </button>
                   )}
                   {hasAlternatives && (

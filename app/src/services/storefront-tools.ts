@@ -9,7 +9,8 @@ import {
   type WooProductCategoryNode
 } from "../lib/woocommerce.js";
 import type { ProductCard } from "../types/chat.js";
-import { generateProductRecommendations, generateProductSearchQueries } from "./llm.js";
+import { generateProductSearchQueries } from "./llm.js";
+import { hasSimulatorModelMatch } from "./simulator-models.js";
 
 const CATALOG_CACHE_KEY = "woo_product_catalog";
 const CATALOG_TTL = 5 * 60_000;
@@ -195,7 +196,20 @@ const extractQueryTokens = (query: string): string[] => {
   return [...new Set(rawTokens)];
 };
 
-type QueryType = "ookapp" | "tvkapp" | "vitriinkapp" | "riiul" | "kummut" | "laud" | "tool" | null;
+type QueryType =
+  | "ookapp"
+  | "tvkapp"
+  | "vitriinkapp"
+  | "riiul"
+  | "kummut"
+  | "laud"
+  | "tool"
+  | "diivan"
+  | "voodi"
+  | "valgusti"
+  | "vaip"
+  | "peegel"
+  | null;
 type DimensionAxis = "any" | "width" | "length";
 
 interface QuerySemantics {
@@ -325,6 +339,30 @@ const detectQuerySemantics = (query: string): QuerySemantics => {
     };
   }
 
+  if (containsAny(["diivan", "sohva", "sofa", "couch"])) {
+    return {
+      normalizedQuery: normalized,
+      smallPreferred,
+      requiredType: "diivan",
+      requiredAliases: ["diivan", "sohva", "sofa", "couch"],
+      excludedAliases: ["tugitool", "chair", "ottoman", "tumba", "pouf"],
+      dimensionAxis,
+      ...dimension
+    };
+  }
+
+  if (containsAny(["voodi", "voodipeats", "bed"])) {
+    return {
+      normalizedQuery: normalized,
+      smallPreferred,
+      requiredType: "voodi",
+      requiredAliases: ["voodi", "voodipeats", "bed"],
+      excludedAliases: ["diivanvoodi", "daybed", "sunbed"],
+      dimensionAxis,
+      ...dimension
+    };
+  }
+
   if (containsAny(["riiul", "raamaturiiul", "seinariiul"])) {
     return {
       normalizedQuery: normalized,
@@ -370,6 +408,42 @@ const detectQuerySemantics = (query: string): QuerySemantics => {
     };
   }
 
+  if (containsAny(["valgusti", "lamp", "light", "lighting"])) {
+    return {
+      normalizedQuery: normalized,
+      smallPreferred,
+      requiredType: "valgusti",
+      requiredAliases: ["valgusti", "lamp", "light", "lighting"],
+      excludedAliases: [],
+      dimensionAxis,
+      ...dimension
+    };
+  }
+
+  if (containsAny(["vaip", "rug", "carpet"])) {
+    return {
+      normalizedQuery: normalized,
+      smallPreferred,
+      requiredType: "vaip",
+      requiredAliases: ["vaip", "rug", "carpet"],
+      excludedAliases: [],
+      dimensionAxis,
+      ...dimension
+    };
+  }
+
+  if (containsAny(["peegel", "mirror"])) {
+    return {
+      normalizedQuery: normalized,
+      smallPreferred,
+      requiredType: "peegel",
+      requiredAliases: ["peegel", "mirror"],
+      excludedAliases: [],
+      dimensionAxis,
+      ...dimension
+    };
+  }
+
   return {
     normalizedQuery: normalized,
     smallPreferred,
@@ -381,12 +455,19 @@ const detectQuerySemantics = (query: string): QuerySemantics => {
   };
 };
 
-const mapToCard = (product: WooProduct): ProductCard => {
+const buildSimulatorLookupKey = (input: { title: string; handle?: string; categories?: string[] }) =>
+  [input.title, input.handle ?? "", ...(input.categories ?? [])].join(" ");
+
+const mapToCard = async (product: WooProduct): Promise<ProductCard> => {
   const price = product.prices;
   const minorUnit = Number(price?.currency_minor_unit ?? 2);
   const currencySymbol = price?.currency_symbol ?? "€";
   const current = Number(price?.price ?? 0) / 10 ** minorUnit;
   const regular = Number(price?.regular_price ?? 0) / 10 ** minorUnit;
+  const categories = (product.categories ?? []).map((c) => c.name);
+  const simulatorAvailable = await hasSimulatorModelMatch(
+    buildSimulatorLookupKey({ title: product.name, handle: product.slug, categories })
+  );
 
   return {
     id: String(product.id),
@@ -398,7 +479,8 @@ const mapToCard = (product: WooProduct): ProductCard => {
     reason: "",
     variantId: String(product.id),
     permalink: product.permalink,
-    categoryNames: (product.categories ?? []).map((c) => c.name)
+    categoryNames: categories,
+    simulatorAvailable
   };
 };
 
@@ -415,6 +497,7 @@ interface CatalogProduct {
   compareAtPrice: number;
   variantId: string;
   permalink: string;
+  simulatorAvailable: boolean;
 }
 
 export interface CategoryClarificationOption {
@@ -569,7 +652,8 @@ const mapCatalogToCard = (product: CatalogProduct): ProductCard => ({
   reason: "",
   variantId: product.variantId,
   permalink: product.permalink,
-  categoryNames: product.categories
+  categoryNames: product.categories,
+  simulatorAvailable: product.simulatorAvailable
 });
 
 export const fetchProductCatalog = async (): Promise<CatalogProduct[]> => {
@@ -594,12 +678,13 @@ export const fetchProductCatalog = async (): Promise<CatalogProduct[]> => {
         const minorUnit = Number(price?.currency_minor_unit ?? 2);
         const current = Number(price?.price ?? 0) / 10 ** minorUnit;
         const regular = Number(price?.regular_price ?? 0) / 10 ** minorUnit;
+        const categories = (product.categories ?? []).map((c) => c.name);
 
         all.push({
           id: String(product.id),
           title: product.name,
           handle: product.slug,
-          categories: (product.categories ?? []).map((c) => c.name),
+          categories,
           categorySlugs: (product.categories ?? []).map((c) => c.slug),
           categoryIds: (product.categories ?? []).map((c) => c.id),
           description: stripHtml(product.short_description || product.description || "").slice(0, 360),
@@ -607,7 +692,10 @@ export const fetchProductCatalog = async (): Promise<CatalogProduct[]> => {
           price: current,
           compareAtPrice: regular,
           variantId: String(product.id),
-          permalink: product.permalink
+          permalink: product.permalink,
+          simulatorAvailable: await hasSimulatorModelMatch(
+            buildSimulatorLookupKey({ title: product.name, handle: product.slug, categories })
+          )
         });
 
         if (all.length >= MAX_CATALOG_PRODUCTS) break;
@@ -644,7 +732,7 @@ export const search_products = async (input: {
       orderby: "date"
     });
 
-    let cards = products.map(mapToCard);
+    let cards = await Promise.all(products.map((product) => mapToCard(product)));
 
     if (input.budgetMax) {
       cards = cards.filter((card) => parseCardPrice(card.price) <= input.budgetMax!);
@@ -718,6 +806,14 @@ const isCardRelevantToQuery = (
     if (hasExcludedAlias && !(semantics.requiredAliases.some((alias) => searchable.includes(alias)))) {
       return { relevant: false, score: -80 };
     }
+  }
+
+  if (
+    semantics.requiredType === "diivan" &&
+    (searchable.includes("tugitool") || searchable.includes("chair")) &&
+    !normalizeForMatch(card.title).startsWith("diivan")
+  ) {
+    return { relevant: false, score: -75 };
   }
 
   let score = 0;
@@ -796,102 +892,209 @@ const dedupeCardsByTitle = (cards: ProductCard[]): ProductCard[] => {
   return deduped;
 };
 
+const QUERY_TYPE_LABELS: Record<Exclude<QueryType, null>, string> = {
+  ookapp: "öökapi",
+  tvkapp: "TV-kapi",
+  vitriinkapp: "vitriinkapi",
+  riiul: "riiuli",
+  kummut: "kummuti",
+  laud: "laua",
+  tool: "tooli",
+  diivan: "diivani",
+  voodi: "voodi",
+  valgusti: "valgusti",
+  vaip: "vaiba",
+  peegel: "peegli"
+};
+
+const isLikelyDirectProductSearch = (input: {
+  query: string;
+  productTypes?: string[];
+  tags?: string[];
+}): boolean => {
+  const normalized = normalizeForMatch(input.query);
+  const tokenCount = extractQueryTokens(input.query).length;
+  const semantics = detectQuerySemantics(input.query);
+
+  return (
+    tokenCount <= 4 &&
+    (semantics.requiredType !== null || (input.productTypes?.length ?? 0) > 0) &&
+    !semantics.hasDimensionRequest &&
+    (input.tags?.length ?? 0) === 0 &&
+    !/\bstiil|\bvarv|\bvärv|\bmaterjal|\btoon|\belutuba|\bmagamistuba|\bkontor|\bskandinaavia|\bnordic|\bmodern/.test(
+      normalized
+    )
+  );
+};
+
+const buildQueryList = async (input: {
+  query: string;
+  productTypes?: string[];
+  tags?: string[];
+}): Promise<string[]> => {
+  const fallbackQueries: string[] = [];
+  const directSearch = isLikelyDirectProductSearch(input);
+
+  fallbackQueries.push(input.query);
+
+  if ((input.productTypes?.length ?? 0) > 0) {
+    fallbackQueries.push(...(input.productTypes ?? []));
+  }
+
+  fallbackQueries.push(...extractSearchKeywords(input.query));
+
+  const uniqueFallback = [...new Set(fallbackQueries.map((q) => q.trim()).filter(Boolean))];
+  if (directSearch) {
+    return uniqueFallback.slice(0, 3);
+  }
+
+  const planned = await generateProductSearchQueries({
+    userMessage: input.query,
+    fallbackQueries: uniqueFallback
+  });
+
+  return [...new Set([...uniqueFallback, ...planned].map((q) => q.trim()).filter(Boolean))].slice(0, 5);
+};
+
+const rankCardsForSearch = (
+  cards: ProductCard[],
+  constraints: { query: string; budgetMax?: number }
+): Array<{ card: ProductCard; score: number }> => {
+  const semantics = detectQuerySemantics(constraints.query);
+  const queryTokens = extractQueryTokens(constraints.query);
+
+  const ranked = cards
+    .map((card) => {
+      const relevance = isCardRelevantToQuery(card, semantics, queryTokens);
+      const searchable = normalizeForMatch(
+        `${card.title} ${card.handle} ${(card.categoryNames ?? []).join(" ")}`
+      );
+      const exactQueryBoost = searchable.includes(normalizeForMatch(constraints.query)) ? 12 : 0;
+      const budgetBoost =
+        constraints.budgetMax && parseCardPrice(card.price) <= constraints.budgetMax ? 3 : 0;
+
+      return {
+        card,
+        score: relevance.score + exactQueryBoost + budgetBoost,
+        relevant: relevance.relevant
+      };
+    })
+    .filter((entry) => entry.relevant)
+    .sort((left, right) => right.score - left.score);
+
+  if (ranked.length > 0) {
+    return ranked.map(({ card, score }) => ({ card, score }));
+  }
+
+  return cards
+    .map((card) => ({
+      card,
+      score: normalizeForMatch(`${card.title} ${(card.categoryNames ?? []).join(" ")}`).includes(
+        normalizeForMatch(constraints.query)
+      )
+        ? 10
+        : 0
+    }))
+    .sort((left, right) => right.score - left.score);
+};
+
+const buildReasonFromSearch = (
+  card: ProductCard,
+  constraints: { query: string; budgetMax?: number }
+): string => {
+  const semantics = detectQuerySemantics(constraints.query);
+  const parts: string[] = [];
+  const dims = parseDimensionProfile(`${card.title} ${card.handle}`);
+
+  if (semantics.requiredType) {
+    parts.push(`See sobib sinu otsitud ${QUERY_TYPE_LABELS[semantics.requiredType]} tüübi alla`);
+  } else {
+    parts.push("See kattub hästi sinu otsinguga");
+  }
+
+  if (semantics.dimensionMaxCm !== undefined && dims.maxDimension !== null && dims.maxDimension <= semantics.dimensionMaxCm + 0.5) {
+    parts.push(`ja mahub umbes ${Math.round(semantics.dimensionMaxCm)} cm piirangusse`);
+  } else if (
+    constraints.budgetMax &&
+    parseCardPrice(card.price) > 0 &&
+    parseCardPrice(card.price) <= constraints.budgetMax
+  ) {
+    parts.push("ja mahub sinu eelarvesse");
+  }
+
+  return `${parts.join(" ")}.`;
+};
+
+const attachAlternativesToCards = (cards: ProductCard[], alternativePool: ProductCard[]): ProductCard[] =>
+  cards.map((card) => ({
+    ...card,
+    alternatives: alternativePool
+      .filter((alternative) => alternative.id !== card.id)
+      .slice(0, 4)
+      .map((alternative) => ({ ...alternative, alternatives: undefined }))
+  }));
+
 export const recommend_products = async (input: {
   intent: string;
   constraints: { query: string; budgetMax?: number; vegan?: boolean; goal?: string; productTypes?: string[]; tags?: string[] };
   limit: number;
 }): Promise<ProductCard[]> => {
-  const fallbackQueries: string[] = [];
-  if ((input.constraints.productTypes?.length ?? 0) > 0) {
-    fallbackQueries.push(...(input.constraints.productTypes ?? []));
-  }
-  fallbackQueries.push(...extractSearchKeywords(input.constraints.query));
-  fallbackQueries.push(input.constraints.query);
-
-  const plannedQueries = await generateProductSearchQueries({
-    userMessage: input.constraints.query,
-    fallbackQueries
+  const queries = await buildQueryList({
+    query: input.constraints.query,
+    productTypes: input.constraints.productTypes,
+    tags: input.constraints.tags
   });
 
-  const dedupedQueries = [...new Set(plannedQueries.map((q) => q.trim()).filter(Boolean))].slice(0, 10);
+  const searchResults = await Promise.all(
+    queries.map((query) =>
+      search_products({
+        query,
+        tags: input.constraints.tags,
+        productTypes: input.constraints.productTypes,
+        budgetMax: input.constraints.budgetMax,
+        limit: 18
+      })
+    )
+  );
 
-  const seen = new Set<string>();
-  const candidateCards: ProductCard[] = [];
+  const searchCards = dedupeCardsByTitle(searchResults.flat()).slice(0, 90);
+  const rankedSearchCards = rankCardsForSearch(searchCards, input.constraints);
 
-  for (const query of dedupedQueries) {
-    const results = await search_products({
-      query,
-      tags: input.constraints.tags,
-      productTypes: input.constraints.productTypes,
-      budgetMax: input.constraints.budgetMax,
-      limit: Math.max(input.limit * 3, 12)
-    });
+  let candidatePool = rankedSearchCards.map((entry) => entry.card);
 
-    for (const card of results) {
-      if (!seen.has(card.id)) {
-        seen.add(card.id);
-        candidateCards.push(card);
-      }
-      if (candidateCards.length >= 60) break;
-    }
-    if (candidateCards.length >= 60) break;
-  }
-
-  // If search endpoint returns too few results, include a wider catalog slice.
-  if (candidateCards.length < 12) {
+  if (candidatePool.length < Math.max(input.limit + 2, 6)) {
     const catalog = await fetchProductCatalog();
-    for (const product of catalog.slice(0, 180)) {
-      const card = mapCatalogToCard(product);
-      if (input.constraints.budgetMax && parseCardPrice(card.price) > input.constraints.budgetMax) {
-        continue;
-      }
-      if (!seen.has(card.id)) {
-        seen.add(card.id);
-        candidateCards.push(card);
-      }
-      if (candidateCards.length >= 180) break;
-    }
+    const catalogCards = catalog
+      .map((product) => mapCatalogToCard(product))
+      .filter((card) => !input.constraints.budgetMax || parseCardPrice(card.price) <= input.constraints.budgetMax)
+      .slice(0, 500);
+
+    const merged = dedupeCardsByTitle([...candidatePool, ...catalogCards]);
+    candidatePool = rankCardsForSearch(merged, input.constraints)
+      .map((entry) => entry.card)
+      .slice(0, 60);
   }
 
-  const candidatePool = dedupeCardsByTitle(candidateCards).slice(0, 120);
   if (candidatePool.length === 0) {
     return [];
   }
 
-  const catalogSummary = candidatePool
-    .map((p) => {
-      const parts = [`- ${p.title} (handle: ${p.handle})`, `  Hind: ${p.price}`];
-      if (p.categoryNames?.length) {
-        parts.push(`  Kategooriad: ${p.categoryNames.slice(0, 5).join(", ")}`);
-      }
-      return parts.join("\n");
-    })
-    .join("\n\n");
+  const primaryCards = candidatePool
+    .slice(0, input.limit)
+    .map((card) => ({
+      ...card,
+      reason: buildReasonFromSearch(card, input.constraints)
+    }));
 
-  const aiPicks = await generateProductRecommendations({
-    userMessage: input.constraints.query,
-    catalogSummary,
-    limit: input.limit
-  });
+  const alternativePool = candidatePool
+    .slice(input.limit, input.limit + 8)
+    .map((card) => ({
+      ...card,
+      reason: buildReasonFromSearch(card, input.constraints),
+      alternatives: undefined
+    }));
 
-  if (aiPicks.length === 0) {
-    return [];
-  }
-
-  const byHandle = new Map(candidatePool.map((c) => [c.handle, c]));
-  let selected = aiPicks
-    .map((pick) => {
-      const card = byHandle.get(pick.handle);
-      if (!card) return null;
-      return { ...card, reason: pick.reason || "Sobib sinu otsingule." };
-    })
-    .filter((card): card is ProductCard => Boolean(card));
-
-  if (input.constraints.budgetMax) {
-    selected = selected.filter((card) => parseCardPrice(card.price) <= input.constraints.budgetMax!);
-  }
-
-  return selected.slice(0, input.limit);
+  return attachAlternativesToCards(primaryCards, alternativePool);
 };
 
 export const create_cart = async () => {

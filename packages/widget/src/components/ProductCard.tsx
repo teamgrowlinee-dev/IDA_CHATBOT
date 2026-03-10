@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import type { ProductCard as ProductCardType } from "../types";
 
 interface Props {
@@ -9,6 +9,9 @@ interface Props {
 }
 
 export const ProductCard: React.FC<Props> = ({ card, loading, onAdd, onViewInSimulator }) => {
+  const [alternativesOpen, setAlternativesOpen] = useState(false);
+  const hasAlternatives = (card.alternatives?.length ?? 0) > 0;
+
   return (
     <div className="gl-card">
       {card.image ? (
@@ -35,12 +38,68 @@ export const ProductCard: React.FC<Props> = ({ card, loading, onAdd, onViewInSim
           <button
             className="gl-card-sim"
             type="button"
+            disabled={!card.simulatorAvailable}
             onClick={() => onViewInSimulator(card)}
             aria-label={`Vaata ${card.title} simulaatoris`}
+            title={card.simulatorAvailable ? `Ava ${card.title} simulaatoris` : "Sellel tootel pole veel 3D mudelit"}
           >
-            Ava simulaatoris
+            {card.simulatorAvailable ? "Ava simulaatoris" : "Simulaatoris pole saadaval"}
           </button>
+          {hasAlternatives ? (
+            <button
+              className="gl-card-alts-toggle"
+              type="button"
+              onClick={() => setAlternativesOpen((prev) => !prev)}
+            >
+              {alternativesOpen
+                ? "Peida alternatiivid"
+                : `Näita alternatiive (${card.alternatives?.length ?? 0})`}
+            </button>
+          ) : null}
         </div>
+
+        {hasAlternatives && alternativesOpen ? (
+          <div className="gl-card-alts-list">
+            {card.alternatives?.map((alternative) => (
+              <div key={`${card.id}-${alternative.id}`} className="gl-card-alt-item">
+                {alternative.image ? (
+                  <img src={alternative.image} alt={alternative.title} className="gl-card-alt-img" loading="lazy" />
+                ) : null}
+                <div className="gl-card-alt-info">
+                  <div className="gl-card-alt-title">
+                    {alternative.permalink ? (
+                      <a href={alternative.permalink} target="_blank" rel="noopener noreferrer">
+                        {alternative.title}
+                      </a>
+                    ) : (
+                      alternative.title
+                    )}
+                  </div>
+                  <div className="gl-card-alt-price">{alternative.price}</div>
+                </div>
+                <div className="gl-card-alt-actions">
+                  <button
+                    className="gl-card-alt-btn"
+                    type="button"
+                    disabled={loading}
+                    onClick={() => onAdd(alternative)}
+                  >
+                    Lisa
+                  </button>
+                  <button
+                    className="gl-card-alt-btn gl-card-alt-btn-secondary"
+                    type="button"
+                    disabled={!alternative.simulatorAvailable}
+                    onClick={() => onViewInSimulator(alternative)}
+                    title={alternative.simulatorAvailable ? undefined : "Sellel tootel pole veel 3D mudelit"}
+                  >
+                    3D
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

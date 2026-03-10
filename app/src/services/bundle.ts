@@ -17,6 +17,7 @@ interface CatalogProductRaw {
   categorySlugs: string[];
   categoryIds: number[];
   description: string;
+  simulatorAvailable?: boolean;
 }
 
 function toProductCard(p: CatalogProductRaw): ProductCard {
@@ -30,7 +31,8 @@ function toProductCard(p: CatalogProductRaw): ProductCard {
     reason: "",
     variantId: p.variantId,
     permalink: p.permalink,
-    categoryNames: p.categories
+    categoryNames: p.categories,
+    simulatorAvailable: p.simulatorAvailable
   };
 }
 

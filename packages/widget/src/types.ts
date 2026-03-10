@@ -9,6 +9,8 @@ export interface ProductCard {
   variantId: string;
   permalink?: string;
   categoryNames?: string[];
+  alternatives?: ProductCard[];
+  simulatorAvailable?: boolean;
 }
 
 export interface ChatMessage {
@@ -64,7 +66,6 @@ export interface BundleItem extends ProductCard {
   roleInBundle: "ankur" | "lisatoode" | "aksessuaar";
   whyChosen: string;
   specKey?: string;
-  alternatives?: ProductCard[];
 }
 
 export interface Bundle {
